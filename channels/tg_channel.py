@@ -18,7 +18,7 @@ class _TelegramChannel:
         self.thread = None
         self.loop = None
         self.application = None
-        self.last_message = None
+        self.last_message = ""
         self.reply_to = None
         self.chat_id = None
         self.msg_lock = threading.Lock()
@@ -27,13 +27,18 @@ class _TelegramChannel:
     def set_last(self, msg, message_id=None):
         """Store a message as the most recent received message, thread-safe."""
         with self.msg_lock:
-            self.last_message = msg
+            if self.last_message == "":
+                self.last_message = msg
+            else:
+                self.last_message = self.last_message + " | " + msg
             self.reply_to = message_id
 
     def get_last_message(self):
-        """Retrieve the most recent received message, thread-safe."""
+        """Retrieve and consume the most recent received message, thread-safe."""
         with self.msg_lock:
-            return self.last_message
+            tmp = self.last_message
+            self.last_message = ""
+            return tmp
 
     async def _start_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle the /start command."""
