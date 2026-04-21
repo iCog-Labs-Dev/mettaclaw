@@ -11,6 +11,11 @@ telegram:
   dm_support:
     enabled: false
     if_enabled_treat_as_direct_tag: true
+  tool_policy:
+    disable_shell: true
+    disable_write_file: true
+    disable_append_file: true
+    disable_metta_eval: true
   reply_constraints:
     same_chat_only: true
     text_only: true

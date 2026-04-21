@@ -8,7 +8,8 @@ import asyncio
 _config_cache = None
 _config_mtime = 0
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "memory", "telegram_profile.yaml")
-openai_client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+_openai_api_key = os.environ.get("OPENAI_API_KEY")
+openai_client = openai.AsyncOpenAI(api_key=_openai_api_key) if _openai_api_key else None
 
 def _load_config():
     """Loads and caches the telegram profile YAML configuration."""
@@ -83,6 +84,8 @@ async def _llm_classify(text, categories, memCheck=False):
         return await use_model(text, categories)
             
     try:
+        if openai_client is None:
+            return await use_model(text, categories)
         response = await openai_client.moderations.create(input=text)
         return response.results[0].flagged
         
@@ -115,3 +118,25 @@ def get_spam_protection_config():
         "cooldown_duration": spam_config.get("cooldown_duration", 120),
         "admin_alert_threshold": spam_config.get("admin_alert_threshold", 3)
     }
+
+
+def get_telegram_tool_policy():
+    """Retrieves Telegram-specific tool policy flags from configuration."""
+    config = _load_config()
+    telegram_cfg = config.get("telegram", {})
+    return telegram_cfg.get("tool_policy", {})
+
+
+def is_tool_blocked_in_telegram(tool_name):
+    """Checks whether a tool is blocked when running in Telegram mode."""
+    key_map = {
+        "shell": "disable_shell",
+        "write-file": "disable_write_file",
+        "append-file": "disable_append_file",
+        "metta": "disable_metta_eval",
+    }
+    policy = get_telegram_tool_policy()
+    policy_key = key_map.get(str(tool_name), "")
+    if not policy_key:
+        return False
+    return bool(policy.get(policy_key, False))

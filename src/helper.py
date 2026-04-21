@@ -1,5 +1,7 @@
 from collections import deque
+import shlex
 import re
+import os
 from datetime import datetime
 
 TS_RE = re.compile(r'^\("(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"')
@@ -14,7 +16,10 @@ def extract_timestamp(line):
         return None
 
 def around_time(needle_time_str, k):
-    filename = "repos/OmegaClaw-Core/memory/history.metta"
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    primary = os.path.join(project_root, "memory", "history.metta")
+    legacy = os.path.join(project_root, "repos", "OmegaClaw-Core", "memory", "history.metta")
+    filename = primary if os.path.exists(primary) else legacy
     target = datetime.strptime(needle_time_str, "%Y-%m-%d %H:%M:%S")
     best_lineno = None
     best_line = None
@@ -42,41 +47,91 @@ def around_time(needle_time_str, k):
         ret += f"{lineno}:{line}"
     return ret
 
+RAW_ARG_COMMANDS = {"metta"}
+TWO_ARG_COMMANDS = {"write-file", "append-file", "append-file-raw"}
+
+
+def _metta_quote(value):
+    value = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return f'"{value}"'
+
+
+def _normalize_command_line(line):
+    line = line.strip()
+    if line.startswith("(") and line.endswith(")"):
+        line = line[1:-1].strip()
+    return line
+
+
+def _parse_single_arg(rest):
+    rest = rest.strip()
+    if not rest:
+        return None
+    try:
+        tokens = shlex.split(rest, posix=True)
+    except ValueError:
+        tokens = None
+    if tokens is None:
+        return rest
+    if len(tokens) == 1:
+        return tokens[0]
+    return rest
+
+
+def _parse_two_args(rest):
+    rest = rest.strip()
+    if not rest:
+        return None, None
+    try:
+        tokens = shlex.split(rest, posix=True)
+    except ValueError:
+        return rest, ""
+    if not tokens:
+        return None, None
+    if len(tokens) == 1:
+        return tokens[0], ""
+    return tokens[0], " ".join(tokens[1:])
+
+
+def _format_line_as_command(line):
+    normalized = _normalize_command_line(line)
+    if not normalized:
+        return None
+
+    parts = normalized.split(maxsplit=1)
+    cmd = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if not rest:
+        return f"({cmd})"
+
+    if cmd in RAW_ARG_COMMANDS:
+        return f"({cmd} {rest})"
+
+    if cmd in TWO_ARG_COMMANDS:
+        arg1, arg2 = _parse_two_args(rest)
+        if arg1 is None:
+            return f"({cmd})"
+        return f"({cmd} {_metta_quote(arg1)} {_metta_quote(arg2 or '')})"
+
+    arg = _parse_single_arg(rest)
+    if arg is None:
+        return f"({cmd})"
+    return f"({cmd} {_metta_quote(arg)})"
+
+
 def balance_parentheses(s):
-    s = s.replace("_quote_", '"')
+    s = (s.replace("_quote_", '"')
+           .replace("_apostrophe_", "'")
+           .replace("_newline_", "\n"))
     sexprs = []
     for line in s.splitlines():
         line = line.strip()
         if not line:
             continue
-        if line.startswith("(") and line.endswith(")"):
-            inner = line[1:-1].strip()
-            parts = inner.split(maxsplit=1)
-            cmd = parts[0]
-            arg = parts[1] if len(parts) > 1 else ""
-            if arg:
-                arg = arg.strip()
-                if not (arg.startswith('"') and arg.endswith('"')):
-                    arg = arg.replace('"', '\\"')
-                    line = f'({cmd} "{arg}")'
-                else:
-                    line = f'({cmd} {arg})'
-            else:
-                line = f'({cmd})'
-            sexprs.append(line)
-            continue
-        parts = line.split(maxsplit=1)
-        cmd = parts[0]
-        arg = parts[1] if len(parts) > 1 else ""
-        if arg:
-            arg = arg.strip()
-            if arg.startswith('"') and arg.endswith('"'):
-                sexprs.append(f'({cmd} {arg})')
-            else:
-                arg = arg.replace('"', '\\"')
-                sexprs.append(f'({cmd} "{arg}")')
-        else:
-            sexprs.append(f'({cmd})')
+        command_expr = _format_line_as_command(line)
+        if command_expr:
+            sexprs.append(command_expr)
     ret = " ".join(sexprs)
     return "(" + ret + ")"
 

@@ -151,9 +151,16 @@ def stop_mattermost():
 def send_message(text):
     text = text.replace("\\n", "\n")
     if not _connected:
-        return
-    requests.post(
-        f"{MM_URL}/api/v4/posts",
-        headers=_headers,
-        json={"channel_id": CHANNEL_ID, "message": text}
-    )
+        return "SEND_ERROR|NOT_CONNECTED"
+    try:
+        resp = requests.post(
+            f"{MM_URL}/api/v4/posts",
+            headers=_headers,
+            json={"channel_id": CHANNEL_ID, "message": text},
+            timeout=10
+        )
+        if 200 <= resp.status_code < 300:
+            return f"SEND_OK|MATTERMOST|status={resp.status_code}"
+        return f"SEND_ERROR|MATTERMOST|status={resp.status_code}|body={resp.text[:300]}"
+    except Exception as e:
+        return f"SEND_ERROR|MATTERMOST|exception={type(e).__name__}: {e}"

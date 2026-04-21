@@ -17,6 +17,7 @@ COLLECTION_NAME = "memories"
 TOP_K = 5
 MIN_CHUNK_CHARS = 100
 MAX_CHUNK_CHARS = 6000
+KNOWLEDGE_FILE_EXTENSIONS = (".md", ".txt")
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -51,6 +52,14 @@ HEADING_RE = re.compile(r"^(#{1,4})\s+(.+)$", re.MULTILINE)
 
 def _resolve_knowledge_dir():
     return os.path.join(_PROJECT_ROOT, "knowledge-priors")
+
+
+def _collect_knowledge_files(knowledge_dir):
+    files = []
+    for ext in KNOWLEDGE_FILE_EXTENSIONS:
+        pattern = os.path.join(knowledge_dir, "**", f"*{ext}")
+        files.extend(glob.glob(pattern, recursive=True))
+    return sorted(f for f in files if os.path.isfile(f))
 
 
 def _file_hash(filepath):
@@ -191,26 +200,27 @@ def init_knowledge():
         if not os.path.isdir(knowledge_dir):
             return f"Knowledge dir not found: {knowledge_dir}"
 
-        md_files = sorted(glob.glob(os.path.join(knowledge_dir, "*.md")))
-        if not md_files:
-            return "No .md files found in knowledge-priors/"
+        knowledge_files = _collect_knowledge_files(knowledge_dir)
+        if not knowledge_files:
+            exts = ", ".join(KNOWLEDGE_FILE_EXTENSIONS)
+            return f"No knowledge files found in knowledge-priors/ (expected: {exts})"
 
         unchanged = 0
         reindexed = 0
 
-        for filepath in md_files:
-            filename = os.path.basename(filepath)
+        for filepath in knowledge_files:
+            source = os.path.relpath(filepath, knowledge_dir)
             current_hash = _file_hash(filepath)
-            stored_hash = _get_stored_hash(collection, filename)
+            stored_hash = _get_stored_hash(collection, source)
 
             if stored_hash == current_hash:
-                print(f"  {filename}: unchanged (skipped)")
+                print(f"  {source}: unchanged (skipped)")
                 unchanged += 1
                 continue
 
             # Delete old chunks for this file
             try:
-                old = collection.get(where={"source": filename}, include=[])
+                old = collection.get(where={"source": source}, include=[])
                 if old["ids"]:
                     collection.delete(ids=old["ids"])
             except Exception:
@@ -218,24 +228,25 @@ def init_knowledge():
 
             # Chunk and embed
             text = open(filepath, "r", encoding="utf-8").read()
-            chunks = _chunk_markdown(text, filename)
+            chunks = _chunk_markdown(text, source)
             if not chunks:
                 continue
 
             texts = [c["text"] for c in chunks]
             embeddings = _embed_batch(texts)
             if not embeddings:
-                print(f"  {filename}: embedding failed, skipping")
+                print(f"  {source}: embedding failed, skipping")
                 continue
 
             if _embedding_dim is None:
                 _embedding_dim = len(embeddings[0])
 
             # Store chunks
-            ids = [f"{filename}_chunk_{i}" for i in range(len(chunks))]
+            source_key = source.replace(os.sep, "__")
+            ids = [f"{source_key}_chunk_{i}" for i in range(len(chunks))]
             metadatas = [
                 {
-                    "source": filename,
+                    "source": source,
                     "breadcrumb": c["breadcrumb"],
                     "type": "chunk",
                     "time": "knowledge_prior"
@@ -250,9 +261,9 @@ def init_knowledge():
             )
 
             # Store hash sentinel
-            _store_hash(collection, filename, current_hash, _embedding_dim)
+            _store_hash(collection, source, current_hash, _embedding_dim)
 
-            print(f"  {filename}: indexed {len(chunks)} chunks")
+            print(f"  {source}: indexed {len(chunks)} chunks")
             reindexed += 1
 
         total = unchanged + reindexed

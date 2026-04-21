@@ -156,3 +156,5 @@ def stop_irc():
 def send_message(text):
     if _connected:
         _send(f"PRIVMSG {_channel} :{text}")
+        return "SEND_OK|IRC"
+    return "SEND_ERROR|NOT_CONNECTED"

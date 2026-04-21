@@ -410,31 +410,22 @@ class _TelegramChannel:
         """Send a text message to the active chat, dispatched to the bot's event loop."""
         text = text.replace("\\n", "\n")
         if not self.connected or self.bot is None or self.loop is None or self.chat_id is None:
-            return
+            return "SEND_ERROR|NOT_CONNECTED"
         
         fut = asyncio.run_coroutine_threadsafe(
             self.bot.send_message(chat_id=self.chat_id,
                                   text=text,
-                                  reply_to_message_id=self._reply_to_id,
-                                  parse_mode="MarkdownV2"),
+                                  reply_to_message_id=self._reply_to_id),
             self.loop,
         )
         try:
-            fut.result(timeout=10)
+            msg = fut.result(timeout=10)
+            message_id = getattr(msg, "message_id", "unknown")
+            return f"SEND_OK|TELEGRAM|PLAIN|message_id={message_id}"
         except Exception as e:
-            logging.error(f"Telegram formatting error, falling back to plain text: {e}")
-            fut_fallback = asyncio.run_coroutine_threadsafe(
-                self.bot.send_message(
-                    chat_id=self.chat_id, 
-                    text=text, 
-                    reply_to_message_id=self._reply_to_id
-                ),
-                self.loop,
-            )
-            try:
-                fut_fallback.result(timeout=10)
-            except Exception:
-                pass
+            error_str = f"{type(e).__name__}: {e}"
+            logging.error(f"Telegram send failed: {error_str}")
+            return f"SEND_ERROR|TELEGRAM|DELIVERY_FAILED|error={error_str}"
 
 _channel = _TelegramChannel()
 
@@ -474,7 +465,7 @@ def send_message(text):
         alert_ethics_violation("send", text)
         return "Error: Refused: Unsafe response content."
         
-    _channel.send_message(text)
+    return _channel.send_message(text)
 
 def is_search_disabled():
     """Check if admin disabled searching."""

@@ -4,6 +4,8 @@
 (= (maxEpisodeRecallLines) (empty))
 (= (maxHistory) (empty))
 (= (embeddingprovider) (empty))
+(= (maxKnowledgeItems) (empty))
+(= (maxKnowledgeChars) (empty))
 
 (= (initMemory)
    (progn (println! "Initializing memory")
@@ -11,6 +13,8 @@
           (configure maxRecallItems 20)
           (configure maxEpisodeRecallLines 20)
           (configure maxHistory 30000)
+          (configure maxKnowledgeItems 5)
+          (configure maxKnowledgeChars 7000)
           (configure embeddingprovider Local) ;OpenAI or Local
           (if (== (embeddingprovider) Local)
               (py-call (lib_llm_ext.initLocalEmbedding)) _)))
@@ -47,6 +51,11 @@
 
 (= (query $str)
    (py-call (lib_chromadb.query (embed $str) (maxRecallItems))))
+
+(= (getKnowledge $query)
+   (last_chars
+      (py-call (rag.query_knowledge (string-safe $query) (maxKnowledgeItems)))
+      (maxKnowledgeChars)))
 
 (= (episodes $time)
    (py-call (helper.around_time $time (maxEpisodeRecallLines))))

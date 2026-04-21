@@ -46,10 +46,11 @@
        (progn (change-state! &lastsend $msg)
               (let $safemsg (string-replace $msg  "\n" "\\n")
                    (if (== (commchannel) irc)
-                       (let $temp (cut) (py-call (irc.send_message $safemsg)))
+                       (py-call (irc.send_message $safemsg))
                        (if (== (commchannel) telegram)
-                           (let $temp (cut) (py-call (tg_channel.send_message $safemsg)))
-                           (let $temp (cut) (py-call (mattermost.send_message $safemsg))))))) _))
+                           (py-call (tg_channel.send_message $safemsg))
+                           (py-call (mattermost.send_message $safemsg)))))))
+       SEND_SKIPPED_DUPLICATE))
 
 ;Search the internet for some information:
 (= (search $msg)
