@@ -10,6 +10,7 @@
 !(import! &self (library OmegaClaw-Core ./src/agentverse.py))
 !(import! &self (library OmegaClaw-Core ./channels/irc.py))
 !(import! &self (library OmegaClaw-Core ./channels/mattermost.py))
+!(import! &self (library OmegaClaw-Core ./channels/telegram.py))
 !(import! &self (library OmegaClaw-Core ./channels/websearch.py))
 !(import! &self (library OmegaClaw-Core ./channels/tg_channel.py))
 !(import! &self (library OmegaClaw-Core ./src/utils))
