@@ -16,6 +16,11 @@ ANTHROPIC_CLIENT = _init_openai_client(
     base_url="https://api.anthropic.com/v1/"
 )
 
+OPEN_ROUTER_CLIENT = _init_openai_client(
+    var_name="OPENROUTER_API_KEY",
+    base_url="https://openrouter.ai/api/v1"
+)
+
 def _clean(text):
     return text.replace("_quote_", '"').replace("_apostrophe_", "'")
 
@@ -42,6 +47,13 @@ def useClaude(content):
     return _chat(
         client=ANTHROPIC_CLIENT,
         model="claude-opus-4-6",
+        content=content
+    )
+
+def useGLM(content):
+    return _chat(
+        client=OPEN_ROUTER_CLIENT,
+        model="z-ai/glm-5.1",
         content=content
     )
 

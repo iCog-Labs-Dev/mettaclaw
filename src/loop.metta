@@ -15,7 +15,7 @@
           (configure spamShield True)
           (configure sleepInterval 1)
           (configure LLM gpt-5.4)
-          (configure provider Anthropic) ;Anthropic or OpenAI or ASICloud
+          (configure provider Anthropic) ;Anthropic, OpenAI, ASICloud or OpenRouter
           (configure maxOutputToken 6000)
           (configure reasoningMode medium)
           (configure wakeupInterval 600) ;600=10 minutes
@@ -69,18 +69,17 @@
                                      (change-state! &loops (maxNewInputLoops)) _)))
                             (if (> (get-state &loops) 0)
                                 (let* (
-                                   ;     ($knowledge (getKnowledge (string-safe $msg)))
                                        ($lastmessage (if $msgnew (HUMAN-MSG: $msg) (if (spamShield) " DO NOT RE-SEND OR SPAM!" "")))
                                        ($_ (change-state! &nextWakeAt (+ (get_time) (wakeupInterval))))
                                        ($_ (println! $lastmessage))
-                                   ;     ($send (py-str ($prompt " KNOWLEDGE_CONTEXT: " $knowledge " " $lastmessage)))
                                        ($send (py-str ($prompt $lastmessage)))
                                        ($_ (println! (CHARS_SENT: (string_length $send) $send)))
-                                       ($respi (if (== (provider) OpenAI)
-                                                   (useGPT (LLM) (maxOutputToken) (reasoningMode) $send)
-                                                   (if (== (provider) Anthropic)
-                                                       (py-call (lib_llm_ext.useClaude $send))
-                                                       (py-call (lib_llm_ext.useMiniMax $send)))))
+                                       ($respi (case (provider)
+                                                (  (OpenAI (useGPT (LLM) (maxOutputToken) (reasoningMode) $send))
+                                                   (ASICloud (py-call (lib_llm_ext.useMiniMax $send)))
+                                                   (Anthropic (py-call (lib_llm_ext.useClaude $send)))
+                                                   (OpenRouter (py-call (lib_llm_ext.useGLM $send)))
+                                                   )))
                                        ($resp (py-call (helper.balance_parentheses $respi)))
                                        ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) ...))))))
                                        ($sexpr (catch (sread $response)))
