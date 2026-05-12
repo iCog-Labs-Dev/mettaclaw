@@ -28,7 +28,7 @@
                   (progn (configure TG_BOT_TOKEN "")
                          (configure TG_CHAT_ID "")
                          (configure TG_POLL_TIMEOUT 20)
-                         (py-call (telegram.start_telegram (TG_BOT_TOKEN) (TG_CHAT_ID) (TG_POLL_TIMEOUT))))
+                         (py-call (tg_channel.start_telegram (TG_BOT_TOKEN) (TG_CHAT_ID) (TG_POLL_TIMEOUT))))
                   (progn (configure MM_URL "https://chat.singularitynet.io")
                          (configure MM_CHANNEL_ID "8fjrmabjx7gupy7e5kjznpt5qh")
                          (configure MM_BOT_TOKEN "")
@@ -39,7 +39,7 @@
    (if (== (commchannel) irc)
        (py-call (irc.getLastMessage))
        (if (== (commchannel) telegram)
-           (py-call (telegram.getLastMessage))
+           (let $msg (py-call (tg_channel.getLastMessage)) (progn (println! "Received message from Telegram: " $msg) $msg))
            (py-call (mattermost.getLastMessage)))))
 
 ;Send a message to all communication channels:
@@ -51,7 +51,7 @@
                    (if (== (commchannel) irc)
                        (let $temp (cut) (py-call (irc.send_message $safemsg)))
                        (if (== (commchannel) telegram)
-                           (let $temp (cut) (py-call (telegram.send_message $safemsg)))
+                           (let $temp (cut) (py-call (tg_channel.send_message $safemsg)))
                            (let $temp (cut) (py-call (mattermost.send_message $safemsg))))))) _))
 
 ;Search the internet for some information:

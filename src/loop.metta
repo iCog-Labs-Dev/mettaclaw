@@ -15,32 +15,37 @@
           (configure spamShield True)
           (configure sleepInterval 1)
           (configure LLM gpt-5.4)
-          (configure provider Anthropic) ;Anthropic or OpenAI or ASICloud or ASIOne
+          (configure provider OpenAI) ;Anthropic or OpenAI or ASICloud or ASIOne
           (configure maxOutputToken 6000)
           (configure reasoningMode medium)
           (configure wakeupInterval 600) ;600=10 minutes
           (change-state! &prevmsg "")
           (change-state! &lastresults "")
-          (change-state! &loops (maxNewInputLoops))))
+          (change-state! &loops (maxNewInputLoops))
+          (initContextFrame)))
 
-(= (initKnowledge)
-   (progn (println! "Initializing knowledge base")
-          (println! (py-call (rag.init_knowledge)))))
 
 (= (getContext)
-   (let* (($prompt (getPrompt))
-          ($skills (getSkills))
-          ($lastres (last_chars (get-state &lastresults) (maxFeedback)))
-          ($history (getHistory))
-          ($time (get_time_as_string)))
-        (string-safe (py-str ("PROMPT: " $prompt " SKILLS: " $skills
-                              " OUTPUT_FORMAT: Up to 5 lines, do not wrap quotes around args, do not use variables:" (newline)
-                              " toolName1 arg1" (newline)
-                              " toolName2 arg2" (newline)
-                              " toolName3 arg3" (newline)
-                              " toolName4 arg4" (newline)
-                              " toolName5 arg5" (newline)
-                              " LAST_SKILL_USE_RESULTS: " $lastres " HISTORY: " $history " TIME: " $time)))))
+   (string-safe
+      (py-str
+         ("PROMPT: " (getPrompt) (newline)
+          "CURRENT_CONTEXT_FRAME_S_EXPR: " (contextFrameForPrompt) (newline)
+          "SKILL_SET: " (getSkills) (newline)
+          "FRAME_RULES: " (newline)
+          "- Treat CURRENT_CONTEXT_FRAME_S_EXPR as the authoritative state." (newline)
+          "- Do not rely on unstated memory or raw conversation history." (newline)
+          "- Choose actions that advance active goals in the goals field." (newline)
+          "- Respect constraints, budget, deliverables, and mode." (newline)
+          "- Invoke only commands from SKILL_SET." (newline)
+          "- Do not output hidden reasoning, analysis, or explanations unless using send." (newline)
+          "OUTPUT_FORMAT: Up to 5 skill command lines, do not wrap quotes around args, do not use variables:" (newline)
+          "toolName1 arg1" (newline)
+          "toolName2 arg2" (newline)
+          "toolName3 arg3" (newline)
+          "toolName4 arg4" (newline)
+          "toolName5 arg5" (newline)
+          "TIME: " (get_time_as_string)))))
+
 
 (= (HandleError $msg $cmd $sexpr)
    (case $sexpr (((Error $a $b) (let $new (append (get-state &error) (($msg $cmd)))
@@ -54,41 +59,111 @@
 (= (omegaclaw)
    (omegaclaw 1))
 (= (omegaclaw $k)
-   (progn (if (== $k 1) (progn (initLoop)
-                               (initMemory)
-                               (initKnowledge)
-                               (initChannels))
-                        (change-state! &loops (- (get-state &loops) 1)))
-          (let $prompt (getContext)
-               (progn (println! (---------iteration $k))
-                      (let* (($msgrcv (string-safe (repr (receive))))
-                             ($msgnew (prog1 (and (> (string_length $msgrcv) 0) (!= $msgrcv (get-state &prevmsg)))
-                                             (if (> (string_length $msgrcv) 0) (change-state! &prevmsg $msgrcv) _)))
-                             ($msg (get-state &prevmsg))
-                             ($_ (if (and (> $k 1) $msgnew)
-                                     (change-state! &loops (maxNewInputLoops)) _)))
-                            (if (> (get-state &loops) 0)
-                                (let* (
-                                   ;     ($knowledge (getKnowledge (string-safe $msg)))
-                                       ($lastmessage (if $msgnew (HUMAN-MSG: $msg) (if (spamShield) " DO NOT RE-SEND OR SPAM!" "")))
-                                       ($_ (change-state! &nextWakeAt (+ (get_time) (wakeupInterval))))
-                                       ($_ (println! $lastmessage))
-                                       ($send (py-str ($prompt :-:-:-: $lastmessage)))
-                                       ($_ (println! (CHARS_SENT: (string_length $send) $send)))
-                                       ($respi (if (== (provider) OpenAI)
-                                                   (useGPT (LLM) (maxOutputToken) (reasoningMode) $send)
-                                                   (py-call (lib_llm_ext.callProvider (provider) $send (maxOutputToken)))))
-                                       ($resp (py-call (helper.balance_parentheses $respi)))
-                                       ($response (if (== "(" (first_char $resp)) $resp (progn (println! $resp) (repr (REMEMBER:OUTPUT_NOTHING_ELSE_THAN: ((skill arg) ...))))))
-                                       ($sexpr (catch (sread $response)))
-                                       ($_ (change-state! &error ()))
-                                       ($_ (HandleError MULTI_COMMAND_FAILURE_NOTHING_WAS_DONE_PLEASE_CORRECT_PARENTHESES_AND_USE_QUOTES_AND_RETRY $response $sexpr))
-                                       ($_ (println! (RESPONSE: $sexpr)))
-                                       ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $s (catch (let $R (eval $s) (py-call (helper.normalize_string $R)))))))))))
-                                       ($_ (println! $results)))
-                                      (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
-                                             (change-state! &lastresults (string-safe (repr $results)))))
-                                (if (> (get_time) (get-state &nextWakeAt))
-                                    (change-state! &loops (+ 1 (maxWakeLoops))) _)))
-                      (sleep (sleepInterval))
-                      (omegaclaw (+ 1 $k))))))
+   (progn
+      (if (== $k 1)
+          (progn
+             (initLoop)
+             (initMemory)
+             (initChannels))
+          (change-state! &loops (- (get-state &loops) 1)))
+
+      (println! (---------iteration $k))
+
+      (let* (($msgrcv (string-safe (repr (receive))))
+             ($msgnew
+                (prog1
+                   (and (> (string_length $msgrcv) 0)
+                        (!= $msgrcv (get-state &prevmsg)))
+                   (if (> (string_length $msgrcv) 0)
+                       (change-state! &prevmsg $msgrcv)
+                       _)))
+             ($msg (get-state &prevmsg))
+
+             ; New input becomes frame state before prompting.
+             ($_ (if $msgnew
+                    (ctx-ingest-user-message $msg)
+                    _))
+
+             ($_ (if (and (> $k 1) $msgnew)
+                    (change-state! &loops (maxNewInputLoops))
+                    _))
+
+             ; Prompt is now frame-based.
+             ($prompt (getContext)))
+
+         (if (> (get-state &loops) 0)
+             (let* (($lastmessage
+                       (if $msgnew
+                           "NEW_INPUT_HAS_BEEN_ADMITTED_TO_CONTEXT_FRAME. Select the next skill command from the frame."
+                           (if (spamShield)
+                               "NO_NEW_INPUT. Continue only if the context frame contains an active useful goal. DO NOT RE-SEND OR SPAM."
+                               "")))
+                    ($_ (change-state! &nextWakeAt (+ (get_time) (wakeupInterval))))
+                    ($_ (println! $lastmessage))
+                    ($send (py-str ($prompt :-:-:-: $lastmessage)))
+                    ($_ (println! (CHARS_SENT: (string_length $send) $send)))
+
+                    ($respi
+                       (if (== (provider) OpenAI)
+                           (useGPT (LLM) (maxOutputToken) (reasoningMode) $send)
+                           (py-call (lib_llm_ext.callProvider
+                                      (provider)
+                                      $send
+                                      (maxOutputToken)))))
+
+                    ($resp (py-call (helper.balance_parentheses $respi)))
+                    ($response
+                       (if (== "(" (first_char $resp))
+                           $resp
+                           (progn
+                              (println! $resp)
+                              (repr
+                                 (REMEMBER:OUTPUT_NOTHING_ELSE_THAN:
+                                    ((skill arg) ...))))))
+
+                    ($sexpr (catch (sread $response)))
+                    ($_ (change-state! &error ()))
+                    ($_ (HandleError
+                           MULTI_COMMAND_FAILURE_NOTHING_WAS_DONE_PLEASE_CORRECT_PARENTHESES_AND_USE_QUOTES_AND_RETRY
+                           $response
+                           $sexpr))
+                    ($_ (println! (RESPONSE: $sexpr)))
+
+                    ($results
+                       (RESULTS:
+                          (collapse
+                             (let $s (superpose $sexpr)
+                                (COMMAND_RETURN:
+                                   ($s
+                                    (HandleError
+                                       SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY
+                                       $s
+                                       (catch
+                                          (let $R
+                                             ; (if (isAllowedSkillCommand $s)
+                                                 (eval $s)
+                                                ;  (SkillRejected NotInSkillSet $s))
+                                             (py-call
+                                                (helper.normalize_string $R)))))))))))
+
+                    ($_ (println! $results)))
+
+                (progn
+                   ; Legacy audit log remains optional.
+                   (if (or $msgnew (not (== $sexpr ())))
+                       (addToHistory $msg $response $sexpr $msgnew)
+                       _)
+
+                   ; Frame-native audit log.
+                   (ctx-record-command-batch $sexpr $results)
+
+                   ; Compatibility state.
+                   (change-state! &lastresults
+                      (string-safe (repr $results)))))
+
+             (if (> (get_time) (get-state &nextWakeAt))
+                 (change-state! &loops (+ 1 (maxWakeLoops)))
+                 _)))
+
+      (sleep (sleepInterval))
+      (omegaclaw (+ 1 $k))))
