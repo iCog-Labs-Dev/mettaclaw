@@ -185,7 +185,7 @@ class _TelegramChannel:
                 
                 self.chat_id = ready_chat_id
                 self._reply_to_id = reply_id
-                return f"[{ready_chat_id}] {text}"
+                return f"[{ready_chat_id}] [{reply_id}] {text}"
             return None
     
     def _is_admin_dm(self, message: types.Message) -> bool:
@@ -352,7 +352,8 @@ class _TelegramChannel:
             chat_id = message.chat.id
             
         user = message.from_user
-        name = "unknown user" if user is None else (user.full_name or user.username or str(user.id))
+        name = "unknown user" if user is None else (user.username or user.full_name or str(user.id))
+        name = f"@{name}" if name == user.username else name
         text = message.text
 
         if await is_category_blocked(text):
@@ -517,11 +518,12 @@ class _TelegramChannel:
         if self.loop and self._polling_task:
             self.loop.call_soon_threadsafe(self._polling_task.cancel)
 
-    def send_message(self, text, chat_id=None):
+    def send_message(self, text, chat_id=None, reply_to_id=None):
         """Send a text message to the active chat, dispatched to the bot's event loop."""
         text = text.replace("\\n", "\n")
         
         target_chat_id = chat_id or self.chat_id
+        target_reply_id = reply_to_id or (self._reply_to_id if target_chat_id == self.chat_id else None)
         
         if not self.connected or self.bot is None or self.loop is None or target_chat_id is None:
             return
@@ -529,7 +531,7 @@ class _TelegramChannel:
         fut = asyncio.run_coroutine_threadsafe(
             self.bot.send_message(chat_id=target_chat_id,
                                   text=text,
-                                  reply_to_message_id=self._reply_to_id if target_chat_id == self.chat_id else None,
+                                  reply_to_message_id=target_reply_id,
                                   parse_mode="MarkdownV2"),
             self.loop,
         )
@@ -541,7 +543,7 @@ class _TelegramChannel:
                 self.bot.send_message(
                     chat_id=target_chat_id, 
                     text=text, 
-                    reply_to_message_id=self._reply_to_id if target_chat_id == self.chat_id else None
+                    reply_to_message_id=target_reply_id
                 ),
                 self.loop,
             )
@@ -577,11 +579,14 @@ def stop_telegram():
 def send_message(text):
     """Send a message to the active Telegram chat."""    
     target_chat_id = _channel.chat_id
-    
-    m = re.match(r'^\[(-?\d+)\]\s*(.*)$', text, re.DOTALL)
+    target_reply_id = None
+    m = re.match(r'^\[(-?\d+)\]\s*(?:\[(\d+)\])?\s*(.*)$', text, re.DOTALL)
     if m:
         target_chat_id = m.group(1)
-        text = m.group(2)
+        if m.group(2) and m.group(2) != "None":
+            target_reply_id = int(m.group(2))
+
+        text = m.group(3)
 
     # Run the async check safely in a synchronous context
     try:
@@ -594,7 +599,7 @@ def send_message(text):
         alert_ethics_violation("send", text)
         return "Error: Refused: Unsafe response content."
         
-    _channel.send_message(text, chat_id=target_chat_id)
+    _channel.send_message(text, chat_id=target_chat_id, reply_to_id=target_reply_id)
 
 def is_search_disabled():
     """Check if admin disabled searching."""
