@@ -1,0 +1,80 @@
+name: Deploy (production)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image name
+        id: meta
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner}/omegaclaw:production-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "moving=ghcr.io/${owner}/omegaclaw:production" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ steps.meta.outputs.moving }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: IMAGE,ASI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,BOT_TOKEN,CHAT_ID
+          script: |
+            set -e
+            mkdir -p /opt/omegaclaw
+            cat > /opt/omegaclaw/.env <<EOF
+            ASI_API_KEY=${ASI_API_KEY}
+            OPENAI_API_KEY=${OPENAI_API_KEY}
+            ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+            BOT_TOKEN=${BOT_TOKEN}
+            CHAT_ID=${CHAT_ID}
+            EOF
+            chmod 600 /opt/omegaclaw/.env
+
+            docker pull "${IMAGE}"
+            docker rm -f omegaclaw 2>/dev/null || true
+            docker run -d \
+              --name omegaclaw \
+              --restart=always \
+              --env-file /opt/omegaclaw/.env \
+              "${IMAGE}"
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          ASI_API_KEY: ${{ secrets.ASI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
