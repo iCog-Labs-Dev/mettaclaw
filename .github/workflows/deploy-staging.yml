@@ -54,26 +54,35 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: IMAGE,ASI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,BOT_TOKEN,CHAT_ID
+          envs: IMAGE,ASI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,BOT_TOKEN,CHAT_ID,LLM_PROVIDER,LLM_MODEL
           script: |
             set -e
-            mkdir -p /omegaclaw
-            cat > /omegaclaw/.env <<EOF
+            sudo mkdir -p /omegaclaw
+            sudo tee /omegaclaw/.env > /dev/null <<EOF
             ASI_API_KEY=${ASI_API_KEY}
             OPENAI_API_KEY=${OPENAI_API_KEY}
             ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
             BOT_TOKEN=${BOT_TOKEN}
             CHAT_ID=${CHAT_ID}
             EOF
-            chmod 600 /omegaclaw/.env
+            sudo chmod 600 /omegaclaw/.env
 
-            docker pull "${IMAGE}"
-            docker rm -f omegaclaw 2>/dev/null || true
-            docker run -d \
+            sudo mkdir -p /Backup/docker/PeTTa
+
+            sudo docker pull "${IMAGE}"
+            sudo docker rm -f omegaclaw 2>/dev/null || true
+            sudo docker run -d \
               --name omegaclaw \
               --restart=always \
               --env-file /omegaclaw/.env \
-              "${IMAGE}"
+              -v /Backup/docker/PeTTa:/PeTTa/repos/OmegaClaw-Core/memory \
+              "${IMAGE}" \
+              commchannel=telegram \
+              BOT_TOKEN=${BOT_TOKEN} \
+              CHAT_ID=${CHAT_ID} \
+              provider=${LLM_PROVIDER} \
+              LLM=${LLM_MODEL} \
+              embeddingprovider=OpenAI
         env:
           IMAGE: ${{ needs.prep.outputs.image }}
           ASI_API_KEY: ${{ secrets.ASI_API_KEY }}
@@ -81,3 +90,5 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
