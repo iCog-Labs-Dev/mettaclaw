@@ -54,7 +54,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: IMAGE,ASI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,BOT_TOKEN,CHAT_ID,LLM_PROVIDER,LLM_MODEL
+          envs: IMAGE,ASI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,BOT_TOKEN,CHAT_ID,LLM_PROVIDER
           script: |
             set -e
             mkdir -p /omegaclaw
@@ -81,7 +81,6 @@ jobs:
               BOT_TOKEN=${BOT_TOKEN} \
               CHAT_ID=${CHAT_ID} \
               provider=${LLM_PROVIDER} \
-              LLM=${LLM_MODEL} \
               embeddingprovider=OpenAI
         env:
           IMAGE: ${{ needs.prep.outputs.image }}
@@ -91,4 +90,3 @@ jobs:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
-          LLM_MODEL: ${{ vars.LLM_MODEL }}
