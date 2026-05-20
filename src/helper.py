@@ -14,6 +14,7 @@ def extract_timestamp(line):
         return None
 
 def around_time(needle_time_str, k):
+    needle_time_str = needle_time_str.replace(r'\"', '').replace('"', '').strip()
     filename = "repos/OmegaClaw-Core/memory/history.metta"
     target = datetime.strptime(needle_time_str, "%Y-%m-%d %H:%M:%S")
     best_lineno = None
@@ -115,18 +116,18 @@ def normalize_string(x):
         return str(x)
 
 def test_balance_parenthesis():
-    assert balance_parentheses('(write-file test.txt hello world)') == '((write-file "test.txt" "hello world"))'
-    assert balance_parentheses('(append-file test.txt hello world)') == '((append-file "test.txt" "hello world"))'
-    assert balance_parentheses('(write-file "test.txt" hello world)') == '((write-file "test.txt" "hello world"))'
-    assert balance_parentheses('(write-file "test.txt" "hello world")') == '((write-file "test.txt" "hello world"))'
-    assert balance_parentheses('(write-file test.txt "hello world")') == '((write-file "test.txt" "hello world"))'
-    assert balance_parentheses('(send test.xt hello world)') == '((send "test.xt hello world"))'
-    assert balance_parentheses('write-file test.txt hello world') == '((write-file "test.txt" "hello world"))'
-    assert balance_parentheses('append-file test.txt hello world') == '((append-file "test.txt" "hello world"))'
-    assert balance_parentheses('write-file "test.txt" hello world') == '((write-file "test.txt" "hello world"))'
-    assert balance_parentheses('write-file "test.txt" "hello world"') == '((write-file "test.txt" "hello world"))'
-    assert balance_parentheses('write-file test.txt "hello world"') == '((write-file "test.txt" "hello world"))'
-    assert balance_parentheses('send test.xt hello world') == '((send "test.xt hello world"))'
+	assert balance_parentheses('(write-file test.txt hello world)') == '((write-file "test.txt" "hello world"))'
+	assert balance_parentheses('(append-file test.txt hello world)') == '((append-file "test.txt" "hello world"))'
+	assert balance_parentheses('(write-file "test.txt" hello world)') == '((write-file "test.txt" "hello world"))'
+	assert balance_parentheses('(write-file "test.txt" "hello world")') == '((write-file "test.txt" "hello world"))'
+	assert balance_parentheses('(write-file test.txt "hello world")') == '((write-file "test.txt" "hello world"))'
+	assert balance_parentheses('(send test.xt hello world)') == '((send "test.xt hello world"))'
+	assert balance_parentheses('write-file test.txt hello world') == '((write-file "test.txt" "hello world"))'
+	assert balance_parentheses('append-file test.txt hello world') == '((append-file "test.txt" "hello world"))'
+	assert balance_parentheses('write-file "test.txt" hello world') == '((write-file "test.txt" "hello world"))'
+	assert balance_parentheses('write-file "test.txt" "hello world"') == '((write-file "test.txt" "hello world"))'
+	assert balance_parentheses('write-file test.txt "hello world"') == '((write-file "test.txt" "hello world"))'
+	assert balance_parentheses('send test.xt hello world') == '((send "test.xt hello world"))'
 
 if __name__ == "__main__":
     test_balance_parenthesis()

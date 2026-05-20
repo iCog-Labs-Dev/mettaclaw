@@ -21,8 +21,7 @@
        (read-file (library OmegaClaw-Core ./memory/prompt.txt))))
 
 (= (getHistory)
-   (let $ret (read-file (library OmegaClaw-Core ./memory/history.metta))
-        (last_chars $ret (maxHistory))))
+   (read_file_tail (library OmegaClaw-Core ./memory/history.metta) (maxHistory)))
 
 (= (addToHistory $lastmessage $response $sexpr $msgnew)
    (if $msgnew
