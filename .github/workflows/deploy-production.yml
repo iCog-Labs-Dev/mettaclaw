@@ -46,6 +46,14 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Fetch secrets from Infisical
+        uses: Infisical/secrets-action@v1.0.7
+        with:
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          project-slug: ${{ secrets.INFISICAL_PROJECT_SLUG }}
+          env-slug: dev
+
       - name: Deploy to production server
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -75,13 +83,7 @@ jobs:
               --restart=always \
               --env-file /omegaclaw/.env \
               -v /Backup/docker/PeTTa:/PeTTa/repos/OmegaClaw-Core/memory \
-              "${IMAGE}" \
-              commchannel=telegram \
-              BOT_TOKEN=${BOT_TOKEN} \
-              CHAT_ID=${CHAT_ID} \
-              provider=${LLM_PROVIDER} \
-              LLM=${LLM_MODEL} \
-              embeddingprovider=OpenAI
+              "${IMAGE}"
         env:
           IMAGE: ${{ needs.prep.outputs.image }}
           ASI_API_KEY: ${{ secrets.ASI_API_KEY }}
