@@ -52,14 +52,15 @@
             (car-atom $res))))
 
 (= (argk $Prefix)
-   (let $Atom (argv $1)
-         (let $KeyEq (string_concat $Prefix "=")
-            (progn
-               (translatePredicate (atom_string $Atom $Str))
-               (translatePredicate (sub_string $Str 0 $KeyLen $After $KeyEq))
-               (translatePredicate (sub_string $Str $KeyLen $After 0 $Value))
-               (translatePredicate (atom_string $Res $Value))
-               (atom_to_number $Res)))))
+   (let $KeyEq (string_concat $Prefix "=")
+        (progn
+           (translatePredicate (current_prolog_flag argv $Args))
+           (translatePredicate (member $Atom $Args))
+           (translatePredicate (atom_string $Atom $Str))
+           (translatePredicate (sub_string $Str 0 $KeyLen $After $KeyEq))
+           (translatePredicate (sub_string $Str $KeyLen $After 0 $Value))
+           (translatePredicate (atom_string $Res $Value))
+           (atom_to_number $Res))))
 
 (= (argk $Prefix $default)
    (let $res (collapse (argk $Prefix))
