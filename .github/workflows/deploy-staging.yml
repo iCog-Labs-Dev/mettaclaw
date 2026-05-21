@@ -62,15 +62,17 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: IMAGE,INFISICAL_CLIENT_ID,INFISICAL_CLIENT_SECRET,INFISICAL_PROJECT_ID
+          envs: IMAGE,ASI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,OPENROUTER_API_KEY,BOT_TOKEN,CHAT_ID,LLM_PROVIDER,LLM_MODEL
           script: |
             set -e
             mkdir -p /omegaclaw
             tee /omegaclaw/.env > /dev/null <<EOF
-            INFISICAL_CLIENT_ID=${INFISICAL_CLIENT_ID}
-            INFISICAL_CLIENT_SECRET=${INFISICAL_CLIENT_SECRET}
-            INFISICAL_PROJECT_ID=${INFISICAL_PROJECT_ID}
-            INFISICAL_ENVIRONMENT=staging
+            ASI_API_KEY=${ASI_API_KEY}
+            OPENAI_API_KEY=${OPENAI_API_KEY}
+            ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+            OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+            BOT_TOKEN=${BOT_TOKEN}
+            CHAT_ID=${CHAT_ID}
             EOF
             chmod 600 /omegaclaw/.env
 
@@ -82,9 +84,20 @@ jobs:
               --name omegaclaw \
               --env-file /omegaclaw/.env \
               -v /Backup/docker/PeTTa:/PeTTa/repos/OmegaClaw-Core/memory \
-              "${IMAGE}"
+              "${IMAGE}" \
+              commchannel=telegram \
+              BOT_TOKEN=${BOT_TOKEN} \
+              CHAT_ID=${CHAT_ID} \
+              provider=${LLM_PROVIDER} \
+              LLM=${LLM_MODEL} \
+              embeddingprovider=OpenAI
         env:
           IMAGE: ${{ needs.prep.outputs.image }}
-          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
-          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
-          INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
+          ASI_API_KEY: ${{ env.ASI_API_KEY }}
+          OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ env.OPENROUTER_API_KEY }}
+          BOT_TOKEN: ${{ env.BOT_TOKEN }}
+          CHAT_ID: ${{ env.CHAT_ID }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}

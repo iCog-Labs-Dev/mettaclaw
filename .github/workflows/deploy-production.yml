@@ -83,14 +83,20 @@ jobs:
               --restart=always \
               --env-file /omegaclaw/.env \
               -v /Backup/docker/PeTTa:/PeTTa/repos/OmegaClaw-Core/memory \
-              "${IMAGE}"
+              "${IMAGE}" \
+              commchannel=telegram \
+              BOT_TOKEN=${BOT_TOKEN} \
+              CHAT_ID=${CHAT_ID} \
+              provider=${LLM_PROVIDER} \
+              LLM=${LLM_MODEL} \
+              embeddingprovider=OpenAI
         env:
           IMAGE: ${{ needs.prep.outputs.image }}
-          ASI_API_KEY: ${{ secrets.ASI_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          ASI_API_KEY: ${{ env.ASI_API_KEY }}
+          OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ env.OPENROUTER_API_KEY }}
+          BOT_TOKEN: ${{ env.BOT_TOKEN }}
+          CHAT_ID: ${{ env.CHAT_ID }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
