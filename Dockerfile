@@ -61,7 +61,8 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     janus-swi \
     openai \
     uagents \
-    sentence-transformers
+    sentence-transformers \
+    infisical-python
 
 # Pre-download the sentence-transformers model so runtime does not need network access.
 RUN mkdir -p "${HF_HOME}" "${SENTENCE_TRANSFORMERS_HOME}" \

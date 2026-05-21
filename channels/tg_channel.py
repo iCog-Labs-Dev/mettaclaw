@@ -558,8 +558,12 @@ def getLastMessage():
     """Return the last processed batch window."""        
     return _channel.get_last_message()
 
-def start_telegram(token, chat_id=None):
+def start_telegram(token=None, chat_id=None):
     """Initialize and start the Telegram bot."""
+    if token is None or token == "":
+        token = os.environ.get("BOT_TOKEN")
+    if chat_id is None or chat_id == "":
+        chat_id = os.environ.get("CHAT_ID")
     if isinstance(token, list) and len(token) > 0:
         token = str(token[0])
     
