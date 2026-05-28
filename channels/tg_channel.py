@@ -319,6 +319,12 @@ class _TelegramChannel:
             else:
                 await callback.message.answer("❌ Access denied.")
         await callback.answer()
+    
+    async def _send_block_notice(self, message: types.Message, text: str):
+        try:
+            await message.answer(text, reply_to_message_id=message.message_id)
+        except Exception as e:
+            logging.error(f"Failed to send block notice: {e}")
 
     async def _on_message(self, message: types.Message):
         """Capture group messages into the buffer; flag reply if bot is tagged."""
@@ -342,12 +348,14 @@ class _TelegramChannel:
         
         has_media = bool(message.photo or message.video or message.audio or message.voice)
         if has_media and not self.reply_constraints.get("allow_media", False):
-            return
-            
-        has_files = bool(message.document)
-        if has_files and not self.reply_constraints.get("allow_files", False):
+            await self._send_block_notice(message, "Media messages are not supported here. Please send text instead.")
             return
 
+        has_files = bool(message.document)
+        if has_files and not self.reply_constraints.get("allow_files", False):
+            await self._send_block_notice(message, "File uploads are not supported here. Please send text instead.")
+            return
+        
         if message.chat is not None:
             chat_id = message.chat.id
             
@@ -423,13 +431,14 @@ class _TelegramChannel:
         return False
 
     async def _on_media_rejected(self, message: types.Message):
-        """Feature: Block files, images, audio, voice notes."""
         if not self._is_chat_authorized(message):
             return
-        
-        logging.info("Denied capability invoked: Media/File uploaded. Discarding.")
-        # Silently discard to prevent abuse surface / leakage
-        pass
+
+        logging.info("Denied capability invoked: Media/File uploaded.")
+        await self._send_block_notice(
+            message,
+            "I can only process text messages here. Please resend your request as text."
+        )
 
     async def _runner(self, token):
         """Build the aiogram bot, start polling, and run until stopped."""
