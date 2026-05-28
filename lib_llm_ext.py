@@ -1,5 +1,8 @@
 import os, openai
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 class AbstractAIProvider:
     def __init__(self, name: str):
@@ -82,23 +85,29 @@ class OpenRouterProvider(AIProvider):
         if self._client is None:
             raise RuntimeError(f"{self.name} not configured (set {self._var_name})")
 
-        response = self._client.chat.completions.create(
-            model=self._model_name,
-            messages=[{"role": "user", "content": content}],
-            max_tokens=max_tokens,
-            extra_body={
-                "reasoning": {
-                    "enabled": True,
-                    "max_tokens": 6000,
-                }
-            },
-            **kwargs
-        )
+        try:
+            response = self._client.chat.completions.create(
+                model=self._model_name,
+                messages=[{"role": "user", "content": content}],
+                max_tokens=max_tokens,
+                extra_body={
+                    "reasoning": {
+                        "enabled": True,
+                        "max_tokens": 6000,
+                        "exclude": True,
+                    }
+                },
+                **kwargs
+            )
 
-        msg = response.choices[0].message
-        final = msg.content or ""
+            msg = response.choices[0].message
+            final = msg.content or ""
 
-        return self._clean_text(final)
+            return self._clean_text(final)
+
+        except Exception as e:
+            logger.exception("[OpenRouterProvider.chat] OpenRouter request failed")
+            return ""
 
 class AsiOneProvider(AIProvider):
     """Lazy AI provider with on-demand initialization."""
