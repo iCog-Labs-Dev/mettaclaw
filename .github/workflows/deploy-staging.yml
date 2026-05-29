@@ -82,6 +82,12 @@ jobs:
 
             docker pull "${IMAGE}"
             docker rm -f omegaclaw 2>/dev/null || true
+
+            docker run --rm --user 0:0 \
+              -v /Backup/docker/PeTTa:/dst \
+              --entrypoint sh \
+              "${IMAGE}" -c "cp /PeTTa/repos/OmegaClaw-Core/memory/tg_prompt.txt /dst/tg_prompt.txt"
+
             docker run -d \
               --name omegaclaw \
               --env-file /omegaclaw/.env \
@@ -91,6 +97,7 @@ jobs:
               -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY}" \
               -e BOT_TOKEN="${BOT_TOKEN}" \
               -v /Backup/docker/PeTTa:/PeTTa/repos/OmegaClaw-Core/memory \
+              -v /Backup/docker/PeTTa/tg_prompt.txt:/PeTTa/repos/OmegaClaw-Core/memory/tg_prompt.txt:ro \
               "${IMAGE}" \
               commchannel=telegram \
               BOT_TOKEN=${BOT_TOKEN} \
