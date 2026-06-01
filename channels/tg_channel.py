@@ -433,12 +433,27 @@ class _TelegramChannel:
     async def _on_media_rejected(self, message: types.Message):
         if not self._is_chat_authorized(message):
             return
+        
+        caption = message.caption or ""
 
-        logging.info("Denied capability invoked: Media/File uploaded.")
-        await self._send_block_notice(
-            message,
-            "I can only process text messages here. Please resend your request as text."
+        is_tagged = (
+            self.bot_username and
+            f"@{self.bot_username}".lower() in caption.lower()
         )
+
+        is_reply = (
+            self.reply_on_reply and
+            message.reply_to_message and
+            message.reply_to_message.from_user and
+            message.reply_to_message.from_user.id == self.bot_id
+        )
+
+        if is_tagged or is_reply or message.chat.type == "private":
+            logging.info("Denied capability invoked: Media/File uploaded.")
+            await self._send_block_notice(
+                message,
+                "I can only process text messages here. Please resend your request as text."
+            )
 
     async def _runner(self, token):
         """Build the aiogram bot, start polling, and run until stopped."""
