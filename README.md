@@ -111,7 +111,7 @@ After start go to https://webchat.quakenet.org/ to communicate with the agent. J
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `commchannel` | `irc` | Type of the communication channel for agent to use - `irc`, `telegram`, `mattermost` or `slack` |
+| `commchannel` | `irc` | Type of the communication channel for agent to use - `irc`, `telegram`, `mattermost`, `slack` or `websocket` |
 | `IRC_channel` | `##omegaclaw` | IRC channel to join |
 | `IRC_server` | `irc.quakenet.org` | IRC server hostname |
 | `IRC_port` | 6667 | IRC port |
@@ -125,6 +125,8 @@ After start go to https://webchat.quakenet.org/ to communicate with the agent. J
 | `MM_URL` | `https://chat.singularitynet.io` | Mattermost base URL. |
 | `MM_CHANNEL_ID` | `8fjrmabjx7gupy7e5kjznpt5qh` | Mattermost channel ID. |
 | `MM_BOT_TOKEN` |  | Mattermost bot token. |
+| `WS_URL` |  | WebSocket endpoint URL (`ws://` or `wss://`). Required when `commchannel=websocket`. |
+| `WS_TOKEN` |  | Optional bearer token sent as `Authorization: Bearer <token>`. |
 
 ---
 
