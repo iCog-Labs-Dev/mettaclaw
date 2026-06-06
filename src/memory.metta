@@ -30,6 +30,17 @@
            (appendToHistory ((get_time_as_string) (newline) $response (newline)))
            (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))))
 
+(= (summarizeHistory)
+   (if (> (string_length (getHistory)) (* (maxHistory) 0.8))
+       (let $summary
+          (py-call (lib_llm_ext.callProvider
+             (provider)
+             (py-str ("Summarize this agent history into a short structured summary under 500 words, keeping goals, decisions and key facts only:\n" (getHistory)))
+             500))
+          (progn
+             (write-file (library OmegaClaw-Core ./memory/history.metta) (py-str ("(summarized-session " (get_time_as_string) " " $summary ")\n")))
+             HISTORY-SUMMARIZED))
+       HISTORY-OK))
 (= (embed $str)
    (if (== (embeddingprovider) Local)
        (py-call (lib_llm_ext.useLocalEmbedding (string-safe $str)))

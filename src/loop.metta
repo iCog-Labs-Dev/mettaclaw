@@ -24,7 +24,7 @@
           (change-state! &prevmsg "")
           (change-state! &lastresults "")
           (change-state! &loops (maxNewInputLoops))
-          (configure useFrames False)
+          (configure useFrames True)
           (if (== (useFrames) True) (initContextFrame) _)))
 
 
