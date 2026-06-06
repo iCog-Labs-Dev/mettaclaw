@@ -21,15 +21,21 @@
 (= (getHistory)
    (read_file_tail (library OmegaClaw-Core ./memory/history.metta) (maxHistory)))
 
-(= (addToHistory $lastmessage $response $sexpr $msgnew)
-   (if $msgnew
-       (if (== (get-state &error) ())
-           (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline)))
-           (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))
-       (if (== (get-state &error) ())
-           (appendToHistory ((get_time_as_string) (newline) $response (newline)))
-           (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))))
+(= (isNoisyResponse $response)
+   (or (containsStr $response "REMEMBER:OUTPUT_NOTHING_ELSE_THAN")
+       (or (containsStr $response "search failed")
+           (containsStr $response "returned empty"))))
 
+(= (addToHistory $lastmessage $response $sexpr $msgnew)
+   (if (isNoisyResponse $response)
+       HISTORY-SKIPPED-NOISE
+       (if $msgnew
+           (if (== (get-state &error) ())
+               (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline)))
+               (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))
+           (if (== (get-state &error) ())
+               (appendToHistory ((get_time_as_string) (newline) $response (newline)))
+               (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error)))))))
 (= (summarizeHistory)
    (if (> (string_length (getHistory)) (* (maxHistory) 0.8))
        (let $summary
