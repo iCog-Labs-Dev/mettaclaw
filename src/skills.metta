@@ -111,3 +111,6 @@
       (ctx-record-history FrameJunkCleared $summary)
       (ctx-rebuild-history)
       (currentContextFrame)))
+(= (query-frame-memory $str)
+   (let $results (query $str)
+      (py-str ("FRAME-MEMORY-RESULTS: " $results))))
