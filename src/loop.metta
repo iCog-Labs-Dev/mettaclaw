@@ -111,6 +111,7 @@
                     _))
 
              ; Prompt is now frame-based.
+             
              ($prompt (if (== (useFrames) True) (getContext) (getLegacyContext))))
 
          (if (> (get-state &loops) 0)

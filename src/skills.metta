@@ -19,6 +19,7 @@
    "- Complete current active goals and store compact summary in long-term vector memory: complete-goals-ltm summary"
    "- Compact the prompt-visible context frame without completing goals: compact-frame summary"
    "- Clear transient frame junk after successful completion: clear-frame-junk summary"
+   "- Query the agent's long-term frame memory for a short phrase: query-frame-memory short_phrase"
     ;CODE EXECUTION:
     "- Execute MeTTa expression: metta sexpression"
     "Example to invoke Non-Axiomatic Logic via MeTTa: "
@@ -111,3 +112,6 @@
       (ctx-record-history FrameJunkCleared $summary)
       (ctx-rebuild-history)
       (currentContextFrame)))
+(= (query-frame-memory $str)
+   (let $results (query $str)
+      (py-str ("FRAME-MEMORY-RESULTS: " $results))))

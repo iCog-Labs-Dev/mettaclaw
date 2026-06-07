@@ -136,6 +136,13 @@ def normalize_string(x):
     except Exception:
         return str(x)
 
+
+def contains_str(text, sub):
+    norm_text = normalize_string(text).lower()
+    norm_sub = normalize_string(sub).lower()
+    return norm_sub in norm_text
+
+
 def test_balance_parenthesis():
 	assert balance_parentheses('(write-file test.txt hello world)') == '((write-file "test.txt" "hello world"))'
 	assert balance_parentheses('(append-file test.txt hello world)') == '((append-file "test.txt" "hello world"))'

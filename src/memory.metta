@@ -21,22 +21,48 @@
 (= (getHistory)
    (read_file_tail (library OmegaClaw-Core ./memory/history.metta) (maxHistory)))
 
-(= (addToHistory $lastmessage $response $sexpr $msgnew)
-   (if $msgnew
-       (if (== (get-state &error) ())
-           (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline)))
-           (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))
-       (if (== (get-state &error) ())
-           (appendToHistory ((get_time_as_string) (newline) $response (newline)))
-           (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))))
+(= (containsStr $str $sub)
+   (py-call (helper.contains_str $str $sub)))
 
+(= (isNoisyResponse $response)
+   (or (containsStr $response "REMEMBER:OUTPUT_NOTHING_ELSE_THAN")
+       (or (containsStr $response "search failed")
+           (or (containsStr $response "returned empty")
+               (containsStr $response "DO NOT RE-SEND OR SPAM")))))
+
+(= (addToHistory $lastmessage $response $sexpr $msgnew)
+   (if (isNoisyResponse $response)
+       HISTORY-SKIPPED-NOISE
+       (if $msgnew
+           (if (== (get-state &error) ())
+               (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline)))
+               (appendToHistory ((get_time_as_string) (newline) "HUMAN_MESSAGE: " $lastmessage (newline) $response (newline) ERROR_FEEDBACK: (get-state &error))))
+           (if (== (get-state &error) ())
+               (appendToHistory ((get_time_as_string) (newline) $response (newline)))
+               (appendToHistory ((get_time_as_string) (newline) $response (newline) ERROR_FEEDBACK: (get-state &error)))))))
+(= (summarizeHistory)
+   (if (> (string_length (getHistory)) (* (maxHistory) 8/10))
+       (let $summary
+          (py-call (lib_llm_ext.callProvider
+             (provider)
+             (py-str ("Summarize this agent history into a short structured history summary under 500 words, keeping only goals, decisions, and useful facts:\n" (getHistory)))
+             500))
+          (progn
+             (write-file (library OmegaClaw-Core ./memory/history.metta)
+                (py-str ((swrite ((summarized-session (get_time_as_string) $summary))) (newline))))
+             HISTORY-SUMMARIZED))
+       HISTORY-OK))
 (= (embed $str)
    (if (== (embeddingprovider) Local)
        (py-call (lib_llm_ext.useLocalEmbedding (string-safe $str)))
        (useGPTEmbedding (string-safe $str))))
 
 (= (appendToHistory $addition)
-   (append-file (library OmegaClaw-Core ./memory/history.metta) (swrite $addition)))
+   (progn
+      (append-file (library OmegaClaw-Core ./memory/history.metta) (swrite $addition))
+      (if (> (string_length (getHistory)) (* (maxHistory) 8/10))
+          (summarizeHistory)
+          _)))
 
 (= (remember $str)
    (progn (py-call (lib_chromadb.remember $str (embed $str) (get_time_as_string)))
