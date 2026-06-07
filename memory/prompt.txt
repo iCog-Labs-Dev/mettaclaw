@@ -16,4 +16,5 @@ Otherwise do not send.
 The context frame is your working memory - always use it to track goals and progress.
 Use complete-goals-ltm for completed goals worth remembering long term.
 Use complete-goals-stm for short term completed goals.
+Use query-frame-memory to retrieve remembered facts and context from long-term memory.
 Never store raw command results in long-term memory, only meaningful summaries.
