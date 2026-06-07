@@ -22,12 +22,13 @@
    (read_file_tail (library OmegaClaw-Core ./memory/history.metta) (maxHistory)))
 
 (= (containsStr $str $sub)
-   (translatePredicate (sub_string $str $_ $_ $_ $sub)))
+   (py-call (helper.contains_str $str $sub)))
 
 (= (isNoisyResponse $response)
    (or (containsStr $response "REMEMBER:OUTPUT_NOTHING_ELSE_THAN")
        (or (containsStr $response "search failed")
-           (containsStr $response "returned empty"))))
+           (or (containsStr $response "returned empty")
+               (containsStr $response "DO NOT RE-SEND OR SPAM")))))
 
 (= (addToHistory $lastmessage $response $sexpr $msgnew)
    (if (isNoisyResponse $response)
@@ -44,11 +45,11 @@
        (let $summary
           (py-call (lib_llm_ext.callProvider
              (provider)
-             (py-str ("Summarize this agent history into a short structured summary under 500 words, keeping goals, decisions and key facts only:\n" (getHistory)))
+             (py-str ("Summarize this agent history into a short structured history summary under 500 words, keeping only goals, decisions, and useful facts:\n" (getHistory)))
              500))
           (progn
              (write-file (library OmegaClaw-Core ./memory/history.metta)
-                (py-str ("(summarized-session " (get_time_as_string) " \"" $summary "\")\n")))
+                (py-str ((swrite ((summarized-session (get_time_as_string) $summary))) (newline))))
              HISTORY-SUMMARIZED))
        HISTORY-OK))
 (= (embed $str)
