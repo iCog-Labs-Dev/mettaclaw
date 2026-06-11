@@ -433,7 +433,7 @@ start
 }
 
 help() {
-    echo -e "Usage: ${0} [<image tag> | command] [options]"
+    echo -e "Usage: ${0} [<image tag> | command [options]]"
     echo
     echo -e "If used with <image tag> instead of command then boostrap Docker container"
     echo -e "in interactive mode."
@@ -467,6 +467,12 @@ options() {
     WS_URL="${WS_URL:-}"
     WS_TOKEN="${WS_TOKEN:-}"
     commchannel=irc
+
+    if [[ "$#" -eq 0 ]]; then
+        help
+        return 1
+    fi
+
     command=${1}
     shift 1
 
@@ -530,14 +536,16 @@ start() {
     docker_cmd=(
         docker run -d -it
             --name omegaclaw
-            --user 65534:65534
             --security-opt no-new-privileges:true
             --init
-            --volume omegaclaw-memory:/PeTTa/repos/OmegaClaw-Core/memory
+            --add-host=host.docker.internal:host-gateway
             --tmpfs /tmp:size=64m,mode=1777
-            --tmpfs /run:size=16m,mode=755
             --tmpfs /var/tmp:size=64m,mode=1777
+            --tmpfs /run:size=16m,mode=755
+            --volume omegaclaw-memory:/PeTTa/repos/OmegaClaw-Core/memory
             -e "${api_token_var}"="${api_token}"
+            -e "TG_BOT_TOKEN=${TG_BOT_TOKEN:-}"
+            -e "SL_BOT_TOKEN=${SL_BOT_TOKEN:-}"
             -e OMEGACLAW_AUTH_SECRET="$OMEGACLAW_AUTH_SECRET"
             -e LLM_SERVER_LOCAL_URL="$llm_server_local_url"
             "$image"
@@ -545,13 +553,12 @@ start() {
             "provider=${provider}"
             "embeddingprovider=${embeddingprovider}"
     )
+
     if [ "${commchannel}" = "irc" ]; then
       docker_cmd+=("IRC_channel=${IRC_channel}")
     elif [ "${commchannel}" = "telegram" ]; then
-      docker_cmd+=("TG_BOT_TOKEN=${TG_BOT_TOKEN}")
       docker_cmd+=("TG_POLL_TIMEOUT=${TG_POLL_TIMEOUT}")
     elif [ "${commchannel}" = "slack" ]; then
-      docker_cmd+=("SL_BOT_TOKEN=${SL_BOT_TOKEN}")
       docker_cmd+=("SL_CHANNEL_ID=${SL_CHANNEL_ID}")
       docker_cmd+=("SL_POLL_INTERVAL=${SL_POLL_INTERVAL}")
     elif [ "${commchannel}" = "websocket" ]; then
