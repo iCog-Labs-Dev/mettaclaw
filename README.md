@@ -59,7 +59,7 @@ source ./.venv/bin/activate
 
 If you have CPU only machine or don't want calculate embeddings on GPU:
 ```
-python3 -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.5.1
+python3 -m pip install --index-url https://download.pytorch.org/whl/cpu torch
 ```
 
 Install Python dependencies:
