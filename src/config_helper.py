@@ -156,3 +156,38 @@ def get_spam_protection_config():
         "cooldown_duration": spam_config.get("cooldown_duration", 120),
         "admin_alert_threshold": spam_config.get("admin_alert_threshold", 3)
     }
+
+def get_memory_admin_config():
+    """Retrieves the admin long-term-memory (ChromaDB) toggles + store location.
+
+    Reuses the existing ``purge_memory`` flag for purge so behaviour matches the
+    pre-existing /purge command; inspect/delete are gated independently.
+    """
+    config = _load_config()
+    admin = config.get("admin_controls", {})
+    learning = config.get("internal_learning", {}).get("durable_memory", {})
+    enabled = admin.get("memory_admin", True)
+    return {
+        "enabled": enabled,
+        "inspect": enabled and admin.get("memory_inspect", True),
+        "delete": enabled and admin.get("memory_delete", True),
+        "purge": enabled and admin.get("purge_memory", True),
+        "db_path": learning.get("db_path", "./chroma_db"),
+        "collection_name": learning.get("collection_name", "memories"),
+    }
+
+def get_history_admin_config():
+    """Retrieves the admin history-management toggles from the configuration.
+
+    ``history_admin`` is the master switch; the per-action flags gate inspect,
+    delete and purge independently so deployments can expose read-only access.
+    """
+    config = _load_config()
+    admin = config.get("admin_controls", {})
+    enabled = admin.get("history_admin", True)
+    return {
+        "enabled": enabled,
+        "inspect": enabled and admin.get("history_inspect", True),
+        "delete": enabled and admin.get("history_delete", True),
+        "purge": enabled and admin.get("history_purge", True),
+    }

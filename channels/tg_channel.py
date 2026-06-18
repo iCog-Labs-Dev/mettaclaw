@@ -8,7 +8,21 @@ import re
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from src.config_helper import is_category_blocked, get_spam_protection_config
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    BotCommand,
+)
+from src.config_helper import (
+    is_category_blocked,
+    get_spam_protection_config,
+    get_history_admin_config,
+    get_memory_admin_config,
+)
+from src import history_admin
+from src import memory_admin
 
 
 log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
@@ -52,6 +66,17 @@ class _TelegramChannel:
         self.restrict_to_config_chat = True
         self.allow_group_bots = False
         self.reply_constraints = None
+
+        # Conversation-history admin (memory/history.metta)
+        self.history_path = history_admin.DEFAULT_HISTORY_PATH
+        self.history_cfg = {"enabled": True, "inspect": True, "delete": True, "purge": True}
+
+        # Long-term (ChromaDB) memory admin
+        self._repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        self.memory_cfg = {
+            "enabled": True, "inspect": True, "delete": True, "purge": True,
+            "db_path": "./chroma_db", "collection_name": "memories",
+        }
         
         # Policy messages
         self.start_msg = "Telegram mode active."
@@ -135,6 +160,8 @@ class _TelegramChannel:
             self.allowed_chat_id = next(iter(self.allowed_chat_ids), None)
             self.admin_ids = config.get("admin_controls", {}).get("admin_ids", [])
             self.reply_constraints = tg_cfg.get("reply_constraints", {})
+            self.history_cfg = get_history_admin_config()
+            self.memory_cfg = get_memory_admin_config()
 
             logging.info(f"Loaded config from {config_path}: window={self.window_seconds}s, tag_only={self.reply_only_on_tag}")
         except Exception as e:
@@ -229,8 +256,15 @@ class _TelegramChannel:
 
         if message.from_user and message.from_user.id in self.admin_ids:
             builder.button(text="⚙️ Admin Panel", callback_data="admin_panel")
-        
+
         await message.answer(self.start_msg, reply_markup=builder.as_markup())
+
+        # Give admins a persistent bottom button so they never type /history.
+        if message.from_user and message.from_user.id in self.admin_ids:
+            await message.answer(
+                "Admin quick actions ⬇️ — tap 📜 History anytime.",
+                reply_markup=self._admin_reply_kb(),
+            )
 
     async def _about_cmd(self, message: types.Message):
         """Handle /about command."""
@@ -298,8 +332,382 @@ class _TelegramChannel:
             await message.answer(f"❌ Failed to purge memory: {e}")
 
 
+    # ── Conversation-history admin (memory/history.metta) ────────────
+    # The heavy lifting (parsing, stats, delete/purge, view-models and
+    # button specs) lives in src/history_admin.py. The methods below are
+    # thin transport: gate -> call -> render.
+
+    def _rows_to_markup(self, rows):
+        """Convert history_admin button rows -> aiogram InlineKeyboardMarkup."""
+        return InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=label, callback_data=data) for label, data in row]
+                for row in rows
+            ]
+        )
+
+    def _admin_reply_kb(self):
+        """Persistent bottom keyboard giving admins one-tap History/Memory buttons."""
+        return ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="📜 History"), KeyboardButton(text="🧠 Memory")]],
+            resize_keyboard=True,
+            is_persistent=True,
+        )
+
+    async def _history_guard(self, message: types.Message, need: str = None) -> bool:
+        """Admin-DM + config gate shared by every history command."""
+        if not self._is_admin_dm(message):
+            await message.answer("❌ Admin commands only work in direct messages.")
+            return False
+        if not self.history_cfg.get("enabled", True):
+            await message.answer("⚠️ History admin is disabled by config.")
+            return False
+        if need and not self.history_cfg.get(need, True):
+            await message.answer(f"⚠️ History {need} is disabled by config.")
+            return False
+        return True
+
+    async def _history_cmd(self, message: types.Message):
+        """Open the history admin menu (buttons)."""
+        if not await self._history_guard(message):
+            return
+        await message.answer(
+            "🧠 History admin — choose an action:",
+            reply_markup=self._rows_to_markup(history_admin.menu_buttons()),
+        )
+
+    async def _history_stats_cmd(self, message: types.Message):
+        if not await self._history_guard(message, "inspect"):
+            return
+        await message.answer(
+            history_admin.format_stats(self.history_path),
+            reply_markup=self._rows_to_markup(history_admin.menu_buttons()),
+        )
+
+    async def _history_list_cmd(self, message: types.Message):
+        if not await self._history_guard(message, "inspect"):
+            return
+        parts = (message.text or "").split()
+        page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+        text, page_entries = history_admin.format_list_page(self.history_path, page)
+        total = len(history_admin.read_entries(self.history_path))
+        await message.answer(
+            text,
+            reply_markup=self._rows_to_markup(
+                history_admin.list_page_buttons(page_entries, page, total)
+            ),
+        )
+
+    async def _history_get_cmd(self, message: types.Message):
+        if not await self._history_guard(message, "inspect"):
+            return
+        parts = (message.text or "").split()
+        if len(parts) < 2 or not parts[1].lstrip("-").isdigit():
+            return await message.answer("Usage: /history_get <index>")
+        entry = history_admin.get_entry(self.history_path, int(parts[1]))
+        if not entry:
+            return await message.answer("ℹ️ Entry not found.")
+        await message.answer(
+            history_admin.format_entry(entry),
+            reply_markup=self._rows_to_markup(history_admin.entry_buttons(entry.index)),
+        )
+
+    async def _history_delete_cmd(self, message: types.Message):
+        if not await self._history_guard(message, "delete"):
+            return
+        parts = (message.text or "").split()
+        if len(parts) < 2 or not parts[1].lstrip("-").isdigit():
+            return await message.answer("Usage: /history_delete <index>")
+        idx = int(parts[1])
+        entry = history_admin.get_entry(self.history_path, idx)
+        if not entry:
+            return await message.answer("ℹ️ Entry not found.")
+        fp = history_admin.fingerprint(entry.raw)
+        await message.answer(
+            f"⚠️ Delete history entry #{idx} ({entry.timestamp})? This cannot be undone.",
+            reply_markup=self._rows_to_markup(history_admin.delete_confirm_buttons(idx, fp)),
+        )
+
+    async def _history_purge_cmd(self, message: types.Message):
+        if not await self._history_guard(message, "purge"):
+            return
+        stats = history_admin.history_stats(self.history_path)
+        await message.answer(
+            f"⚠️ Purge ALL {stats['entries']} history entries? This cannot be undone.",
+            reply_markup=self._rows_to_markup(history_admin.purge_confirm_buttons()),
+        )
+
+    async def _edit(self, callback: types.CallbackQuery, text: str, rows):
+        """Edit the message in place; fall back to a new message if needed."""
+        markup = self._rows_to_markup(rows)
+        try:
+            await callback.message.edit_text(text, reply_markup=markup)
+        except Exception:
+            await callback.message.answer(text, reply_markup=markup)
+
+    async def _handle_history_callback(self, callback: types.CallbackQuery):
+        """Route 'hist:*' button presses to history_admin operations."""
+        if not (
+            callback.message
+            and callback.message.chat.type == "private"
+            and callback.from_user.id in self.admin_ids
+        ):
+            return await callback.answer("❌ Admins only (use a direct message).", show_alert=True)
+
+        parsed = history_admin.parse_callback(callback.data)
+        if not parsed:
+            return await callback.answer()
+        action, arg = parsed
+        cfg, path = self.history_cfg, self.history_path
+
+        def _gate(flag):
+            return cfg.get("enabled", True) and cfg.get(flag, True)
+
+        try:
+            if action == "menu":
+                await self._edit(callback, "🧠 History admin — choose an action:", history_admin.menu_buttons())
+            elif action == "stats":
+                if not _gate("inspect"):
+                    return await callback.answer("Inspect disabled.", show_alert=True)
+                await self._edit(callback, history_admin.format_stats(path), history_admin.menu_buttons())
+            elif action == "list":
+                if not _gate("inspect"):
+                    return await callback.answer("Inspect disabled.", show_alert=True)
+                page = int(arg) if arg and arg.isdigit() else 1
+                text, page_entries = history_admin.format_list_page(path, page)
+                total = len(history_admin.read_entries(path))
+                await self._edit(callback, text, history_admin.list_page_buttons(page_entries, page, total))
+            elif action == "view":
+                if not _gate("inspect"):
+                    return await callback.answer("Inspect disabled.", show_alert=True)
+                entry = history_admin.get_entry(path, int(arg))
+                if not entry:
+                    return await callback.answer("Entry not found.", show_alert=True)
+                await self._edit(callback, history_admin.format_entry(entry), history_admin.entry_buttons(entry.index))
+            elif action == "delask":
+                if not _gate("delete"):
+                    return await callback.answer("Delete disabled.", show_alert=True)
+                idx = int(arg)
+                entry = history_admin.get_entry(path, idx)
+                if not entry:
+                    return await callback.answer("Entry not found.", show_alert=True)
+                fp = history_admin.fingerprint(entry.raw)
+                await self._edit(
+                    callback,
+                    f"⚠️ Delete history entry #{idx} ({entry.timestamp})? This cannot be undone.",
+                    history_admin.delete_confirm_buttons(idx, fp),
+                )
+            elif action == "del":
+                if not _gate("delete"):
+                    return await callback.answer("Delete disabled.", show_alert=True)
+                idx_str, _, fp = (arg or "").partition(":")
+                removed = history_admin.delete_entry(path, int(idx_str), fp or None)
+                msg = (
+                    f"✅ Deleted entry ({removed.timestamp})." if removed
+                    else "ℹ️ Entry already changed or removed — nothing deleted."
+                )
+                await self._edit(callback, msg, history_admin.menu_buttons())
+            elif action == "purgeask":
+                if not _gate("purge"):
+                    return await callback.answer("Purge disabled.", show_alert=True)
+                stats = history_admin.history_stats(path)
+                await self._edit(callback, f"⚠️ Purge ALL {stats['entries']} history entries? This cannot be undone.", history_admin.purge_confirm_buttons())
+            elif action == "purge":
+                if not _gate("purge"):
+                    return await callback.answer("Purge disabled.", show_alert=True)
+                n = history_admin.purge(path)
+                await self._edit(callback, f"🗑️ Purged {n} history entries.", history_admin.menu_buttons())
+            await callback.answer()
+        except Exception as e:
+            logging.error(f"History callback error ({callback.data}): {e}")
+            await callback.answer(f"Error: {e}", show_alert=True)
+
+    # ── Long-term (ChromaDB) memory admin ────────────────────────────
+    # Logic lives in src/memory_admin.py; these methods are thin transport.
+
+    def _open_memory(self):
+        """Open the configured Chroma collection (raises on failure)."""
+        db_path = memory_admin.resolve_db_path(self.memory_cfg.get("db_path"), self._repo_root)
+        return memory_admin.open_collection(db_path, self.memory_cfg.get("collection_name", "memories"))
+
+    async def _memory_guard(self, message: types.Message, need: str = None) -> bool:
+        if not self._is_admin_dm(message):
+            await message.answer("❌ Admin commands only work in direct messages.")
+            return False
+        if not self.memory_cfg.get("enabled", True):
+            await message.answer("⚠️ Memory admin is disabled by config.")
+            return False
+        if need and not self.memory_cfg.get(need, True):
+            await message.answer(f"⚠️ Memory {need} is disabled by config.")
+            return False
+        return True
+
+    async def _memory_cmd(self, message: types.Message):
+        if not await self._memory_guard(message):
+            return
+        await message.answer(
+            "🧠 Long-term memory admin — choose an action:",
+            reply_markup=self._rows_to_markup(memory_admin.menu_buttons()),
+        )
+
+    async def _memory_stats_cmd(self, message: types.Message):
+        if not await self._memory_guard(message, "inspect"):
+            return
+        try:
+            client, col = self._open_memory()
+            db_path = memory_admin.resolve_db_path(self.memory_cfg.get("db_path"), self._repo_root)
+            await message.answer(
+                memory_admin.format_stats(client, col, db_path),
+                reply_markup=self._rows_to_markup(memory_admin.menu_buttons()),
+            )
+        except Exception as e:
+            await message.answer(f"❌ Memory store unavailable: {e}")
+
+    async def _memory_list_cmd(self, message: types.Message):
+        if not await self._memory_guard(message, "inspect"):
+            return
+        parts = (message.text or "").split()
+        page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+        try:
+            _, col = self._open_memory()
+            recs, total = memory_admin.recent_records(col)
+            page = max(1, min(page, memory_admin.page_count(total)))
+            page_recs = memory_admin.format_list_page(recs, total, page)
+            start = (page - 1) * memory_admin.DEFAULT_PAGE_SIZE
+            await message.answer(
+                memory_admin.list_page_text(page_recs, start, total, page),
+                reply_markup=self._rows_to_markup(
+                    memory_admin.list_page_buttons(page_recs, start, page, total)
+                ),
+            )
+        except Exception as e:
+            await message.answer(f"❌ Memory store unavailable: {e}")
+
+    async def _memory_get_cmd(self, message: types.Message):
+        if not await self._memory_guard(message, "inspect"):
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            return await message.answer("Usage: /memory_get <id>")
+        try:
+            _, col = self._open_memory()
+            rec = memory_admin.get_record(col, parts[1].strip())
+            if not rec:
+                return await message.answer("ℹ️ Memory id not found.")
+            await message.answer(memory_admin._truncate(
+                f"🧠 Memory Record\nID: {rec['id']}\nTimestamp: {rec['timestamp']}\n\n{rec['doc']}"))
+        except Exception as e:
+            await message.answer(f"❌ Memory store unavailable: {e}")
+
+    async def _memory_delete_cmd(self, message: types.Message):
+        if not await self._memory_guard(message, "delete"):
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            return await message.answer("Usage: /memory_delete <id>")
+        try:
+            _, col = self._open_memory()
+            ok = memory_admin.delete_record(col, parts[1].strip())
+            await message.answer(
+                f"✅ Deleted memory record: {parts[1].strip()}" if ok else "ℹ️ Memory id not found."
+            )
+        except Exception as e:
+            await message.answer(f"❌ Memory store unavailable: {e}")
+
+    async def _handle_memory_callback(self, callback: types.CallbackQuery):
+        """Route 'mem:*' button presses to memory_admin operations."""
+        if not (
+            callback.message
+            and callback.message.chat.type == "private"
+            and callback.from_user.id in self.admin_ids
+        ):
+            return await callback.answer("❌ Admins only (use a direct message).", show_alert=True)
+
+        parsed = memory_admin.parse_callback(callback.data)
+        if not parsed:
+            return await callback.answer()
+        action, arg = parsed
+        cfg = self.memory_cfg
+
+        def _gate(flag):
+            return cfg.get("enabled", True) and cfg.get(flag, True)
+
+        try:
+            if action == "menu":
+                await self._edit(callback, "🧠 Long-term memory admin — choose an action:", memory_admin.menu_buttons())
+                return await callback.answer()
+
+            client, col = self._open_memory()
+            db_path = memory_admin.resolve_db_path(cfg.get("db_path"), self._repo_root)
+
+            if action == "stats":
+                if not _gate("inspect"):
+                    return await callback.answer("Inspect disabled.", show_alert=True)
+                await self._edit(callback, memory_admin.format_stats(client, col, db_path), memory_admin.menu_buttons())
+            elif action == "list":
+                if not _gate("inspect"):
+                    return await callback.answer("Inspect disabled.", show_alert=True)
+                page = int(arg) if arg and arg.isdigit() else 1
+                recs, total = memory_admin.recent_records(col)
+                page = max(1, min(page, memory_admin.page_count(total)))
+                page_recs = memory_admin.format_list_page(recs, total, page)
+                start = (page - 1) * memory_admin.DEFAULT_PAGE_SIZE
+                await self._edit(
+                    callback,
+                    memory_admin.list_page_text(page_recs, start, total, page),
+                    memory_admin.list_page_buttons(page_recs, start, page, total),
+                )
+            elif action == "view":
+                if not _gate("inspect"):
+                    return await callback.answer("Inspect disabled.", show_alert=True)
+                pos = int(arg)
+                recs, _ = memory_admin.recent_records(col)
+                rec = memory_admin.resolve_record(recs, pos)
+                if not rec:
+                    return await callback.answer("Record not found.", show_alert=True)
+                await self._edit(callback, memory_admin.format_record(rec, pos), memory_admin.record_buttons(pos))
+            elif action == "delask":
+                if not _gate("delete"):
+                    return await callback.answer("Delete disabled.", show_alert=True)
+                pos = int(arg)
+                recs, _ = memory_admin.recent_records(col)
+                rec = memory_admin.resolve_record(recs, pos)
+                if not rec:
+                    return await callback.answer("Record not found.", show_alert=True)
+                fp = memory_admin.fingerprint(rec["doc"])
+                await self._edit(callback, f"⚠️ Delete memory #{pos + 1}? This cannot be undone.", memory_admin.delete_confirm_buttons(pos, fp))
+            elif action == "del":
+                if not _gate("delete"):
+                    return await callback.answer("Delete disabled.", show_alert=True)
+                pos_str, _, fp = (arg or "").partition(":")
+                recs, _ = memory_admin.recent_records(col)
+                rec = memory_admin.resolve_record(recs, int(pos_str), fp or None)
+                if rec and memory_admin.delete_record(col, rec["id"]):
+                    msg = f"✅ Deleted memory ({rec['timestamp']})."
+                else:
+                    msg = "ℹ️ Record already changed or removed — nothing deleted."
+                await self._edit(callback, msg, memory_admin.menu_buttons())
+            elif action == "purgeask":
+                if not _gate("purge"):
+                    return await callback.answer("Purge disabled.", show_alert=True)
+                await self._edit(callback, f"⚠️ Purge ALL {col.count()} memory records? This cannot be undone.", memory_admin.purge_confirm_buttons())
+            elif action == "purge":
+                if not _gate("purge"):
+                    return await callback.answer("Purge disabled.", show_alert=True)
+                memory_admin.purge(client, col)
+                await self._edit(callback, "🗑️ Long-term memory purged.", memory_admin.menu_buttons())
+            await callback.answer()
+        except Exception as e:
+            logging.error(f"Memory callback error ({callback.data}): {e}")
+            await callback.answer(f"Error: {e}", show_alert=True)
+
     async def _on_callback_query(self, callback: types.CallbackQuery):
         """Handle button clicks."""
+        if callback.data and callback.data.startswith(history_admin.CB_PREFIX + ":"):
+            return await self._handle_history_callback(callback)
+        if callback.data and callback.data.startswith(memory_admin.CB_PREFIX + ":"):
+            return await self._handle_memory_callback(callback)
+
         if not self._is_chat_authorized(callback.message, user_id_override=callback.from_user.id):
             await callback.answer("❌ This chat is not authorized.", show_alert=True)
             return
@@ -315,9 +723,17 @@ class _TelegramChannel:
                     "/pause [chat_id] - Pause/unpause a chat\n"
                     "/togglesearch - Enable/Disable Web Search\n"
                     "/purge - Wipe ChromaDB Memory\n"
+                    "/history - Manage conversation history (buttons)\n"
+                    "/memory - Manage long-term memory (buttons)\n"
                     "/kill - Shutdown Bot globally"
                 )
-                await callback.message.answer(cmd_list)
+                await callback.message.answer(
+                    cmd_list,
+                    reply_markup=self._rows_to_markup([[
+                        ("📜 Manage History", history_admin.cb("menu")),
+                        ("🧠 Manage Memory", memory_admin.cb("menu")),
+                    ]]),
+                )
             else:
                 await callback.message.answer("❌ Access denied.")
         await callback.answer()
@@ -468,6 +884,22 @@ class _TelegramChannel:
             self.bot_username = bot_info.username
             self.bot_id = bot_info.id
 
+            # Register the ☰ command menu so admins tap instead of typing.
+            try:
+                await self.bot.set_my_commands([
+                    BotCommand(command="history", description="📜 Manage conversation history"),
+                    BotCommand(command="history_stats", description="📊 History stats"),
+                    BotCommand(command="history_list", description="📜 List history entries"),
+                    BotCommand(command="history_get", description="🔍 View one entry: /history_get <n>"),
+                    BotCommand(command="history_purge", description="🗑 Purge all history"),
+                    BotCommand(command="memory", description="🧠 Manage long-term memory"),
+                    BotCommand(command="memory_stats", description="📊 Memory stats"),
+                    BotCommand(command="memory_list", description="🧠 List memory records"),
+                    BotCommand(command="memory_get", description="🔍 View one record: /memory_get <id>"),
+                ])
+            except Exception as e:
+                logging.error(f"set_my_commands failed: {e}")
+
             chat_ids_for_admin_scan = list(self.allowed_chat_ids)
             if self.chat_id:
                 normalized_chat_id = self._normalize_chat_id(self.chat_id)
@@ -491,6 +923,20 @@ class _TelegramChannel:
             self.dp.message.register(self._pause_cmd, Command("pause"))
             self.dp.message.register(self._togglesearch_cmd, Command("togglesearch"))
             self.dp.message.register(self._purge_cmd, Command("purge"))
+            self.dp.message.register(self._history_cmd, Command("history"))
+            self.dp.message.register(self._history_stats_cmd, Command("history_stats"))
+            self.dp.message.register(self._history_list_cmd, Command("history_list"))
+            self.dp.message.register(self._history_get_cmd, Command("history_get"))
+            self.dp.message.register(self._history_delete_cmd, Command("history_delete"))
+            self.dp.message.register(self._history_purge_cmd, Command("history_purge"))
+            self.dp.message.register(self._memory_cmd, Command("memory"))
+            self.dp.message.register(self._memory_stats_cmd, Command("memory_stats"))
+            self.dp.message.register(self._memory_list_cmd, Command("memory_list"))
+            self.dp.message.register(self._memory_get_cmd, Command("memory_get"))
+            self.dp.message.register(self._memory_delete_cmd, Command("memory_delete"))
+            # Persistent reply-keyboard buttons -> open the menus (no typing).
+            self.dp.message.register(self._history_cmd, F.text == "📜 History")
+            self.dp.message.register(self._memory_cmd, F.text == "🧠 Memory")
             self.dp.callback_query.register(self._on_callback_query)
             self.dp.message.register(self._on_message, F.text)
             self.dp.message.register(self._on_media_rejected, ~F.text)

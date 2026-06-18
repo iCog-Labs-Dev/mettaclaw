@@ -32,6 +32,15 @@ admin_controls:
   per_user_cooldown_or_mute: true
   disable_search_only: true
   purge_memory: true
+  # Long-term (ChromaDB) memory management via Telegram.
+  memory_admin: true      # master switch for /memory admin commands & buttons
+  memory_inspect: true    # allow stats / list / view
+  memory_delete: true     # allow deleting a single memory record
+  # Conversation-history management (memory/history.metta) via Telegram.
+  history_admin: true     # master switch for /history admin commands & buttons
+  history_inspect: true   # allow stats / list / view
+  history_delete: true    # allow deleting a single entry
+  history_purge: true     # allow purging the whole history file
 
 classification_model:
   name: "gpt-4o-mini"
@@ -51,6 +60,8 @@ internal_learning:
   durable_memory:
     enabled: true
     scope: telegram_local
+    db_path: ./chroma_db
+    collection_name: memories
     categories_allowed:
       - channel_norm
       - explicit_user_preference
