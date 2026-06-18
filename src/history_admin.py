@@ -10,8 +10,8 @@ All logic here is **pure and stdlib-only** (no aiogram / network imports), so it
 be unit-tested in isolation and reused by other channels. The Telegram layer in
 ``channels/tg_channel.py`` only renders the view-models produced here.
 
-This keeps ``tg_channel.py`` thin and addresses the review feedback on the earlier
-attempt (PR #9), where ~400 lines of file/parse logic were inlined into the channel.
+This keeps ``tg_channel.py`` thin: the file/parse logic lives in one testable module
+rather than being inlined into the channel.
 """
 
 import hashlib
@@ -39,6 +39,13 @@ _ENTRY_START_RE = re.compile(r'^\("(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"', re.M
 
 # Callback-data scheme for inline buttons (kept < 64 bytes per Telegram limits).
 CB_PREFIX = "hist"
+
+# A stored entry mixes the user's message ("HUMAN_MESSAGE: ..."), the agent's
+# function calls (e.g. (query ...), (pin ...)), the agent's outgoing reply
+# ((send ...) -- "the response") and an optional ERROR_FEEDBACK block. Admins
+# should only see relevant operational data: function calls and error messages.
+# Heads whose payload is the agent's natural-language reply ("the response").
+RESPONSE_HEADS = {"send"}
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +196,104 @@ def _truncate(text: str, limit: int = TELEGRAM_SAFE_LEN) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
+# ---------------------------------------------------------------------------
+# Relevance filter: keep only function calls + error messages.
+# Excludes the user query (HUMAN_MESSAGE), the agent's (send ...) reply
+# ("the response") and any free-text "thought" (anything not in an s-expr).
+# ---------------------------------------------------------------------------
+
+def _iter_balanced(text: str):
+    """Yield (start, end) indices of each top-level (...) group, honouring
+    double-quoted strings so parentheses inside text don't break nesting."""
+    depth = 0
+    in_str = False
+    start = None
+    for i, c in enumerate(text):
+        if in_str:
+            if c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == ")" and depth > 0:
+            depth -= 1
+            if depth == 0 and start is not None:
+                yield start, i + 1
+                start = None
+
+
+def _top_groups(text: str) -> List[str]:
+    return [text[s:e] for s, e in _iter_balanced(text)]
+
+
+def _head(group: str) -> Optional[str]:
+    m = re.match(r'\(\s*([^\s()"]+)', group)
+    return m.group(1) if m else None
+
+
+def _leaf_calls(region: str) -> List[str]:
+    """Return individual command s-exprs from a region, descending one level into
+    a wrapping list ``((a) (b))`` but also accepting a bare ``(a)``."""
+    calls: List[str] = []
+    for grp in _top_groups(region):
+        inner = _top_groups(grp[1:-1])
+        calls.extend(inner if inner else [grp])
+    return calls
+
+
+def parse_relevant(raw: str) -> Tuple[List[str], List[str]]:
+    """Split one entry into (function_calls, error_messages), already filtered:
+    user query, the (send ...) reply and free-text thought are excluded."""
+    inner = raw.strip()
+    if inner.startswith("(") and inner.endswith(")"):
+        inner = inner[1:-1]
+
+    idx = inner.find("ERROR_FEEDBACK")
+    cmd_region = inner if idx == -1 else inner[:idx]
+    err_region = "" if idx == -1 else inner[idx + len("ERROR_FEEDBACK"):].lstrip(": \n\t")
+
+    # The agent's command list always begins at the first "((" -- everything
+    # before it is the timestamp and the (paren-free) user message.
+    dbl = cmd_region.find("((")
+    cmd_region = cmd_region[dbl:] if dbl != -1 else ""
+
+    calls = [c for c in _leaf_calls(cmd_region) if _head(c) not in RESPONSE_HEADS]
+    errors = _leaf_calls(err_region) if err_region.strip() else []
+    return calls, errors
+
+
+def relevant_view(raw: str) -> str:
+    """Multi-line view of one entry: function calls + error messages only."""
+    calls, errors = parse_relevant(raw)
+    lines: List[str] = []
+    if calls:
+        lines.append("⚙️ Function calls:")
+        lines.extend(f"  {c}" for c in calls)
+    if errors:
+        lines.append("❗ Errors:")
+        lines.extend(f"  {e}" for e in errors)
+    if not lines:
+        lines.append("(no function calls or errors)")
+    return "\n".join(lines)
+
+
+def relevant_summary(raw: str, width: int = PREVIEW_WIDTH) -> str:
+    """One-line summary: call heads + error count (relevant data only)."""
+    calls, errors = parse_relevant(raw)
+    heads = [(_head(c) or "?") for c in calls]
+    parts: List[str] = []
+    if heads:
+        parts.append("calls: " + ", ".join(heads))
+    if errors:
+        parts.append(f"{len(errors)} error{'s' if len(errors) != 1 else ''}")
+    summary = " · ".join(parts) if parts else "(no calls/errors)"
+    return summary if len(summary) <= width else summary[: width - 3] + "..."
+
+
 def format_stats(path: str = DEFAULT_HISTORY_PATH) -> str:
     s = history_stats(path)
     return "\n".join(
@@ -207,7 +312,7 @@ def format_stats(path: str = DEFAULT_HISTORY_PATH) -> str:
 def format_entry(entry: HistoryEntry) -> str:
     return _truncate(
         f"\U0001F4DC History entry #{entry.index}\n"
-        f"Timestamp: {entry.timestamp}\n\n{entry.raw}"
+        f"Timestamp: {entry.timestamp}\n\n{relevant_view(entry.raw)}"
     )
 
 
@@ -230,7 +335,7 @@ def format_list_page(
     header = f"\U0001F4DC History — page {page}/{page_count(total, page_size)} ({total} entries)"
     lines = [header]
     for e in page_entries:
-        lines.append(f"#{e.index} · {e.timestamp}\n  {e.preview()}")
+        lines.append(f"#{e.index} · {e.timestamp}\n  {relevant_summary(e.raw)}")
     return (_truncate("\n".join(lines)), page_entries)
 
 

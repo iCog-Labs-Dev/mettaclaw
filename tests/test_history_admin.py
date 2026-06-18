@@ -145,5 +145,58 @@ class HistoryAdminTests(unittest.TestCase):
                     self.assertLessEqual(len(data.encode("utf-8")), 64)
 
 
+# An entry in the real shape addToHistory produces: timestamp, the user message,
+# the agent's command list (function calls + the (send ...) reply), and errors.
+REAL_HUMAN = (
+    '("2026-03-30 22:10:45"\n'
+    ' "HUMAN_MESSAGE: " Sura: hi max\n'
+    ' ((query "my goals") (pin "state: greeted Sura") (send "Hey Sura."))\n'
+    ' ERROR_FEEDBACK: ((SINGLE_COMMAND_FORMAT_ERROR (query "my goals"))))'
+)
+# A wake entry: no HUMAN_MESSAGE, no errors -- just function calls + a reply.
+REAL_WAKE = (
+    '("2026-03-30 22:11:11"\n'
+    ' ((query "user context") (send "still here")))'
+)
+
+
+class RelevanceFilterTests(unittest.TestCase):
+    def test_view_keeps_calls_and_errors_only(self):
+        calls, errors = ha.parse_relevant(REAL_HUMAN)
+        self.assertEqual(calls, ['(query "my goals")', '(pin "state: greeted Sura")'])
+        self.assertEqual(errors, ['(SINGLE_COMMAND_FORMAT_ERROR (query "my goals"))'])
+
+    def test_view_excludes_user_query_and_response(self):
+        view = ha.relevant_view(REAL_HUMAN)
+        self.assertNotIn("HUMAN_MESSAGE", view)   # user query excluded
+        self.assertNotIn("hi max", view)          # user query text excluded
+        self.assertNotIn("Hey Sura", view)        # (send ...) response excluded
+        self.assertIn("(query", view)             # function call kept
+        self.assertIn("SINGLE_COMMAND_FORMAT_ERROR", view)  # error kept
+
+    def test_wake_entry_calls_only(self):
+        calls, errors = ha.parse_relevant(REAL_WAKE)
+        self.assertEqual(calls, ['(query "user context")'])  # (send ...) dropped
+        self.assertEqual(errors, [])
+
+    def test_send_only_entry_has_no_relevant_data(self):
+        raw = '("2026-03-30 22:00:00" ((send "just a reply")))'
+        self.assertEqual(ha.parse_relevant(raw), ([], []))
+        self.assertIn("no function calls or errors", ha.relevant_view(raw))
+
+    def test_user_text_with_parens_not_mistaken_for_call(self):
+        raw = ('("2026-03-30 22:00:00"\n'
+               ' "HUMAN_MESSAGE: " what is (this) thing\n'
+               ' ((query "info")))')
+        calls, _ = ha.parse_relevant(raw)
+        self.assertEqual(calls, ['(query "info")'])  # (this) from user text ignored
+
+    def test_summary_lists_heads_and_error_count(self):
+        s = ha.relevant_summary(REAL_HUMAN)
+        self.assertIn("calls: query, pin", s)
+        self.assertIn("1 error", s)
+        self.assertNotIn("send", s)
+
+
 if __name__ == "__main__":
     unittest.main()
