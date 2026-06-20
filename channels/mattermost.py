@@ -1,169 +1,92 @@
 import json
-import os
-import threading
 import time
-
+import threading
 import requests
 import websocket
-import auth
 
-_running = False
-_ws = None
-_ws_lock = threading.Lock()
-_last_message = ""
-_msg_lock = threading.Lock()
-_connected = False
-_auth_lock = threading.Lock()
-_authenticated_user_id = None
-_use_proxy = True
+from channels.base import BaseChannel
 
-# ---- Mattermost config (dummy token ok) ----
-MM_URL = "https://chat.singularitynet.io"
-CHANNEL_ID = "8fjrmabjx7gupy7e5kjznpt5qh" #NOT AN ID JUST NAME: "omegaclaw"x
-BOT_TOKEN = ""
+class MattermostChannel(BaseChannel):
+    def __init__(self, url, channel_id, bot_token):
+        super().__init__()
+        self._url = url.rstrip("/")
+        self._channel_id = channel_id
+        self._bot_token = bot_token
+        self._headers = {"Authorization": f"Bearer {bot_token}"}
+        self._bot_user_id = ""
 
-def _get_bot_user_id():
-    global headers
-    r = requests.get(
-        f"{MM_URL}/api/v4/users/me",
-        headers=_headers
-    )
-    return r.json()["id"]
+    def _get(self, path):
+        return requests.get(f"{self._url}/api/v4{path}", headers=self._headers).json()
 
-def _set_last(msg):
-    global _last_message
-    with _msg_lock:
-        if _last_message == "":
-            _last_message = msg
-        else:
-            _last_message = _last_message + " | " + msg
+    def _get_bot_user_id(self):
+        return self._get("/users/me")["id"]
 
-def getLastMessage():
-    global _last_message
-    with _msg_lock:
-        tmp = _last_message
-        _last_message = ""
-        return tmp
+    def _get_display_name(self, user_id):
+        u = self._get(f"/users/{user_id}")
+        if u.get("first_name") or u.get("last_name"):
+            return f"{u.get('first_name','')} {u.get('last_name','')}".strip()
+        return u["username"]
 
-def _parse_auth_candidate(msg):
-    text = msg.strip()
-    lower = text.lower()
-    if lower.startswith("auth "):
-        return text[5:].strip()
-    if lower.startswith("/auth "):
-        return text[6:].strip()
-    return text
+    def _run_loop(self) -> None:
+        ws_url = self._url.replace("https", "wss") + "/api/v4/websocket"
+        ws = websocket.WebSocket()
+        ws.connect(ws_url, header=[f"Authorization: Bearer {self._bot_token}"])
+        self._bot_user_id = self._get_bot_user_id()
+        self._connected = True
+        last_ping = time.time()
+        print("[MATTERMOST] Connected")
 
-def _is_auth_command(msg):
-    lower = msg.strip().lower()
-    return lower.startswith("auth ") or lower.startswith("/auth ")
+        while self._running:
+            try:
+                if time.time() - last_ping > 25:
+                    ws.ping()
+                    last_ping = time.time()
+                ws.settimeout(1)
+                event = json.loads(ws.recv())
+                if event.get("event") == "posted":
+                    post = json.loads(event["data"]["post"])
+                    if post["channel_id"] == self._channel_id \
+                            and post["user_id"] != self._bot_user_id:
+                        user_id = post["user_id"]
+                        msg = post.get("message", "")
+                        state = self._is_allowed_message(user_id, msg)
+                        if state == "allow":
+                            name = self._get_display_name(user_id)
+                            self._set_last(f"{name}: {msg}")
+                        elif state == "auth_bound":
+                            name = self._get_display_name(user_id)
+                            self.send_message(f"Authentication successful for {name}.")
+            except websocket.WebSocketTimeoutException:
+                continue
+            except Exception:
+                break
 
-def _is_allowed_message(user_id, msg):
-    global _authenticated_user_id
-    with _auth_lock:
-        if not auth.is_auth_enabled():
-            return "allow"
-        if _authenticated_user_id is not None:
-            return "allow" if user_id == _authenticated_user_id else "ignore"
-        if not _is_auth_command(msg):
-            return "ignore"
-        candidate = _parse_auth_candidate(msg)
-        if auth.verify_token(candidate):
-            _authenticated_user_id = user_id
-            return "auth_bound"
-        return "ignore"
+        ws.close()
+        self._connected = False
+        print("[MATTERMOST] Disconnected")
 
-def _get_display_name(user_id):
-    r = requests.get(
-        f"{MM_URL}/api/v4/users/{user_id}",
-        headers=_headers
-    )
-    u = r.json()
+    def send_message(self, text: str) -> None:
+        text = text.replace("\\n", "\n")
+        if not self._connected:
+            return
+        requests.post(f"{self._url}/api/v4/posts", headers=self._headers,
+                      json={"channel_id": self._channel_id, "message": text})
 
-    # Mimic common Mattermost display setting
-    if u.get("first_name") or u.get("last_name"):
-        return f"{u.get('first_name','')} {u.get('last_name','')}".strip()
+_instance: MattermostChannel | None = None
 
-    return u["username"]
-
-def _ws_loop():
-    global _ws, _connected, BOT_USER_ID, _use_proxy
-
-    if _use_proxy:
-        ws_url = MM_URL.replace("http", "ws")
-    else:
-        ws_url = MM_URL.replace("https", "wss")
-    ws_url = ws_url + "/api/v4/websocket"
-    ws = websocket.WebSocket()
-    ws.connect(ws_url, header=[f"Authorization: Bearer {BOT_TOKEN}"])
-
-    BOT_USER_ID = _get_bot_user_id()
-    _ws = ws
-    _connected = True
-
-    last_ping = time.time()
-
-    while _running:
-        try:
-            # send ping every 25s
-            if time.time() - last_ping > 25:
-                ws.ping()
-                last_ping = time.time()
-
-            ws.settimeout(1)
-            event = json.loads(ws.recv())
-
-            if event.get("event") == "posted":
-                post = json.loads(event["data"]["post"])
-                if post["channel_id"] == CHANNEL_ID and post["user_id"] != BOT_USER_ID:
-                    user_id = post["user_id"]
-                    message = post.get("message", "")
-                    state = _is_allowed_message(user_id, message)
-                    if state == "allow":
-                        name = _get_display_name(user_id)
-                        _set_last(f"{name}: {message}")
-                    elif state == "auth_bound":
-                        name = _get_display_name(user_id)
-                        send_message(f"Authentication successful for {name}.")
-
-        except websocket.WebSocketTimeoutException:
-            continue
-        except Exception:
-            break
-
-    ws.close()
-    _connected = False
-
-def start_mattermost(MM_URL_, CHANNEL_ID_):
-    global _running, MM_URL, CHANNEL_ID, BOT_TOKEN, _headers, _connected, _use_proxy
-    proxy = auth.get_proxy_url()
-    if proxy:
-        MM_URL = f"{proxy}/mattermost"
-        BOT_TOKEN = "proxy"
-        _headers = {}
-        _use_proxy = True
-    else:
-        MM_URL = MM_URL_
-        BOT_TOKEN = os.environ.get("MM_BOT_TOKEN", "").strip()
-        _headers = {"Authorization": f"Bearer {BOT_TOKEN}"} if BOT_TOKEN else {}
-        _use_proxy = False
-    CHANNEL_ID = CHANNEL_ID_
-    _running = True
-    _connected = False
-    t = threading.Thread(target=_ws_loop, daemon=True)
-    t.start()
-    return t
+def start_mattermost(url, channel_id, bot_token, auth_secret=None):
+    global _instance
+    _instance = MattermostChannel(url, channel_id, bot_token)
+    return _instance.start(auth_secret)
 
 def stop_mattermost():
-    global _running
-    _running = False
+    if _instance:
+        _instance.stop()
 
-def send_message(text):
-    text = text.replace("\\n", "\n")
-    if not _connected:
-        return
-    requests.post(
-        f"{MM_URL}/api/v4/posts",
-        headers=_headers,
-        json={"channel_id": CHANNEL_ID, "message": text}
-    )
+def getLastMessage() -> str:
+    return _instance.getLastMessage() if _instance else ""
+
+
+def send_message(text: str) -> None:
+    if _instance:
+        _instance.send_message(text)

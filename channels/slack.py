@@ -1,474 +1,268 @@
 import json
-import os
-import re
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import auth
 
-_running = False
-_last_message = ""
-_msg_lock = threading.Lock()
-_state_lock = threading.Lock()
+from channels.base import BaseChannel
 
-_bot_token = ""
-_channel_id = ""
-_poll_interval = 10
-_bot_user_id = ""
-_connected = False
-_user_cache = {}
-_channel_offsets = {}
-_channel_name_cache = {}
-_auto_bind_channels = []
-_auto_bind_index = 0
-_auto_bind_last_refresh = 0.0
-
-_authenticated_user_id = None
-_rate_limit_until = 0.0
 _AUTO_BIND_REFRESH_INTERVAL = 300
 
-_SL_URL = "https://slack.com"
-
-class _SlackRateLimitError(Exception):
+class _RateLimitError(Exception):
     def __init__(self, retry_after):
-        super().__init__(f"Slack rate limited (retry after {retry_after}s)")
+        super().__init__(f"Rate limited (retry after {retry_after}s)")
         self.retry_after = retry_after
 
-
-_URL_DISPLAY_RE = re.compile(r"<[^|>\s]+\|([^>]*)>")
-_URL_BARE_RE = re.compile(r"<([^>\s]+)>")
-
-
-def _slack_unwrap(text):
-    """Reverse Slack's outgoing auto-formatting so downstream layers see the original text."""
-    if not text:
-        return text
-    text = _URL_DISPLAY_RE.sub(r"\1", text)
-    text = _URL_BARE_RE.sub(r"\1", text)
-    text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-    return text
-
-
-def _set_last(msg):
-    global _last_message
-    with _msg_lock:
-        if _last_message == "":
-            _last_message = msg
-        else:
-            _last_message = _last_message + " | " + msg
-
-
-def getLastMessage():
-    global _last_message
-    with _msg_lock:
-        tmp = _last_message
-        _last_message = ""
-        return tmp
-
-
-def _parse_auth_candidate(msg):
-    text = msg.strip()
-    lower = text.lower()
-    if lower.startswith("auth "):
-        return text[5:].strip()
-    if lower.startswith("/auth "):
-        return text[6:].strip()
-    return text
-
-def _is_auth_command(msg):
-    lower = msg.strip().lower()
-    return lower.startswith("auth ") or lower.startswith("/auth ")
-
-def _channel_label(channel_id):
-    with _state_lock:
-        label = _channel_name_cache.get(channel_id)
-    return label or channel_id
-
-
-def _is_allowed_message(channel_id, user_id, msg):
-    global _channel_id, _authenticated_user_id
-    with _state_lock:
-        if _channel_id and channel_id != _channel_id:
-            return "ignore"
-        if not auth.is_auth_enabled():
-            if not _channel_id:
-                _bind_label = _channel_name_cache.get(channel_id, channel_id)
-                print(f"[SLACK] Auto-bound to channel {_bind_label}")
-                _channel_id = channel_id
-            return "allow"
-        if _authenticated_user_id is not None:
-            return "allow" if user_id == _authenticated_user_id else "ignore"
-        candidate = _parse_auth_candidate(msg)
-        if auth.verify_token(candidate):
-            _authenticated_user_id = user_id
-            _channel_id = channel_id
-            return "auth_bound"
-        return "ignore"
-
-
-def _parse_retry_after(value):
-    try:
-        seconds = int(str(value).strip())
-        return max(1, seconds)
-    except Exception:
-        return 60
-
-
-def _set_rate_limit_backoff(seconds):
-    global _rate_limit_until
-    until = time.time() + max(1, int(seconds))
-    with _state_lock:
-        if until > _rate_limit_until:
-            _rate_limit_until = until
-
-
-def _wait_for_rate_limit_window():
-    with _state_lock:
-        wait = _rate_limit_until - time.time()
-    if wait > 0:
-        time.sleep(wait)
-
-
-def _api_call(method, params=None, timeout=30):
-    global _SL_URL, _bot_token
-
-    if not _bot_token:
-        raise RuntimeError("Slack adapter not initialized")
-
-    params = params or {}
-    body = urllib.parse.urlencode(params).encode("utf-8")
-    req = urllib.request.Request(
-        f"{_SL_URL}/api/{method}",
-        data=body,
-        headers={
-            "Authorization": f"Bearer {_bot_token}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        method="POST",
-    )
-
-    _wait_for_rate_limit_window()
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-            response_headers = response.headers
-    except urllib.error.HTTPError as exc:
-        if exc.code == 429:
-            retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
-            _set_rate_limit_backoff(retry_after)
-            raise _SlackRateLimitError(retry_after) from exc
-        raise
-
-    if not payload.get("ok"):
-        err = payload.get("error", f"{method} failed")
-        if err == "ratelimited":
-            retry_after = _parse_retry_after(response_headers.get("Retry-After"))
-            _set_rate_limit_backoff(retry_after)
-            raise _SlackRateLimitError(retry_after)
-        raise RuntimeError(err)
-
-    return payload
-
-
-def _get_display_name(user_id):
-    with _state_lock:
-        cached = _user_cache.get(user_id)
-    if cached:
-        return cached
-
-    name = user_id
-    try:
-        payload = _api_call("users.info", {"user": user_id}, timeout=15)
-        user = payload.get("user") or {}
-        profile = user.get("profile") or {}
-
-        display_name = str(profile.get("display_name", "")).strip()
-        real_name = str(profile.get("real_name", "")).strip()
-        username = str(user.get("name", "")).strip()
-
-        if display_name:
-            name = display_name
-        elif real_name:
-            name = real_name
-        elif username:
-            name = username
-    except Exception as exc:
-        print(f"[SLACK] Could not resolve user {user_id}: {exc}")
-
-    with _state_lock:
-        _user_cache[user_id] = name
-    return name
-
-
-def _cache_channel(channel):
-    channel_id = str(channel.get("id", "")).strip()
-    if not channel_id:
-        return
-    channel_name = str(channel.get("name", "")).strip()
-    label = f"#{channel_name}" if channel_name else channel_id
-    with _state_lock:
-        _channel_name_cache[channel_id] = label
-
-
-def _initialize_identity():
-    global _bot_user_id
-    payload = _api_call("auth.test", timeout=15)
-    bot_user_id = str(payload.get("user_id", "")).strip()
-    with _state_lock:
-        _bot_user_id = bot_user_id
-
-
-def _validate_channel():
-    payload = _api_call("conversations.info", {"channel": _channel_id}, timeout=15)
-    channel = payload.get("channel") or {}
-    _cache_channel(channel)
-    channel_name = str(channel.get("name", "")).strip()
-    if channel_name:
-        print(f"[SLACK] Channel ready: #{channel_name}")
-    else:
-        print(f"[SLACK] Channel ready: {_channel_id}")
-
-
-def _list_joined_channels():
-    channels = []
-    cursor = ""
-    while True:
-        params = {
-            "types": "public_channel,private_channel",
-            "exclude_archived": "true",
-            "limit": 200,
-        }
-        if cursor:
-            params["cursor"] = cursor
-
-        payload = _api_call("conversations.list", params=params, timeout=20)
-        for channel in payload.get("channels") or []:
-            if not channel.get("is_member"):
-                continue
-            channel_id = str(channel.get("id", "")).strip()
-            if not channel_id:
-                continue
-            _cache_channel(channel)
-            channels.append(channel_id)
-
-        metadata = payload.get("response_metadata") or {}
-        cursor = str(metadata.get("next_cursor", "")).strip()
-        if not cursor:
-            break
-    return channels
-
-
-def _initialize_cursor_for_channel(channel_id):
-    try:
-        payload = _api_call(
-            "conversations.history",
-            {"channel": channel_id, "limit": 1},
-            timeout=15,
-        )
-        messages = payload.get("messages") or []
-        ts = ""
-        if messages:
-            ts = str(messages[0].get("ts", "")).strip()
-        with _state_lock:
-            _channel_offsets[channel_id] = ts
-    except Exception as exc:
-        print(f"[SLACK] Could not initialize cursor for {_channel_label(channel_id)}: {exc}")
-
-
-def _initialize_auto_bind_cursors():
-    channels = _refresh_auto_bind_channels(force=True)
-    if not channels:
-        print("[SLACK] Auto-bind waiting: no joined channels visible yet.")
-    else:
-        print(f"[SLACK] Auto-bind watching {len(channels)} joined channel(s).")
-
-
-def _refresh_auto_bind_channels(force=False):
-    global _auto_bind_channels, _auto_bind_last_refresh, _auto_bind_index
-    now = time.time()
-    with _state_lock:
-        cached = list(_auto_bind_channels)
-        last_refresh = _auto_bind_last_refresh
-
-    if (not force) and cached and (now - last_refresh) < _AUTO_BIND_REFRESH_INTERVAL:
-        return cached
-
-    channels = _list_joined_channels()
-    with _state_lock:
-        _auto_bind_channels = channels
-        _auto_bind_last_refresh = now
-        if _auto_bind_index >= len(channels):
-            _auto_bind_index = 0
-    return channels
-
-
-def _next_auto_bind_channel():
-    global _auto_bind_index
-    with _state_lock:
-        if not _auto_bind_channels:
-            return ""
-        channel_id = _auto_bind_channels[_auto_bind_index]
-        _auto_bind_index = (_auto_bind_index + 1) % len(_auto_bind_channels)
-    return channel_id
-
-
-def _poll_channel(channel_id):
-    params = {"channel": channel_id, "limit": 15}
-    with _state_lock:
-        oldest = _channel_offsets.get(channel_id, "")
-    if oldest:
-        params["oldest"] = oldest
-        params["inclusive"] = "false"
-
-    payload = _api_call("conversations.history", params=params, timeout=30)
-    messages = payload.get("messages") or []
-    if not messages:
-        return
-
-    ordered = sorted(messages, key=lambda m: float(m.get("ts", 0.0)))
-    max_ts = oldest
-    for message in ordered:
-        ts = str(message.get("ts", "")).strip()
-        if ts:
-            max_ts = ts
-
-        # Ignore bot/system messages and process regular user text.
-        if message.get("subtype"):
-            continue
-
-        text = _slack_unwrap(str(message.get("text", "")).strip())
-        user_id = str(message.get("user", "")).strip()
-        if not text or not user_id:
-            continue
-
-        with _state_lock:
-            bot_user_id = _bot_user_id
-        if bot_user_id and user_id == bot_user_id:
-            continue
-
-        state = _is_allowed_message(channel_id, user_id, text)
-        display_name = _get_display_name(user_id)
-        if state == "allow":
-            _set_last(f"{display_name}: {text}")
-        elif state == "auth_bound":
-            send_message(f"Authentication successful for {display_name}.")
-
-    if max_ts != oldest:
-        with _state_lock:
-            _channel_offsets[channel_id] = max_ts
-
-
-def _poll_loop():
-    global _connected
-    print("[SLACK] Polling started")
-
-    while _running:
-        try:
-            with _state_lock:
-                bound_channel = _channel_id
-
-            if bound_channel:
-                with _state_lock:
-                    known = bound_channel in _channel_offsets
-                if not known:
-                    _initialize_cursor_for_channel(bound_channel)
-                    _connected = True
-                else:
-                    _poll_channel(bound_channel)
-            else:
-                channels = _refresh_auto_bind_channels()
-                if not channels:
-                    channels = _refresh_auto_bind_channels(force=True)
-                channel_id = _next_auto_bind_channel()
-                if channel_id:
-                    with _state_lock:
-                        known = channel_id in _channel_offsets
-                    if not known:
-                        _initialize_cursor_for_channel(channel_id)
-                        _connected = True
-                    else:
-                        _poll_channel(channel_id)
-
-            _connected = True
-        except _SlackRateLimitError as exc:
-            _connected = False
-            print(f"[SLACK] Rate limited. Backing off for {exc.retry_after}s.")
-        except Exception as exc:
-            _connected = False
-            print(f"[SLACK] Poll error: {exc}")
-
-        time.sleep(max(1, int(_poll_interval)))
-
-    _connected = False
-    print("[SLACK] Polling stopped")
-
-
-def start_slack(channel_id, poll_interval=60):
-    global _running, _bot_token, _channel_id, _poll_interval, _connected
-    global _rate_limit_until, _auto_bind_channels, _auto_bind_index, _auto_bind_last_refresh
-    global _SL_URL
-
-    proxy = auth.get_proxy_url()
-    if proxy:
-        _SL_URL = f"{proxy}/slack"
-        _bot_token = "proxy"
-    else:
-        _bot_token = os.environ.get("SL_BOT_TOKEN", "").strip()
-        if not _bot_token:
+class SlackChannel(BaseChannel):
+    def __init__(self, bot_token, channel_id="", poll_interval=60):
+        super().__init__()
+        self._bot_token = str(bot_token).strip()
+        if not self._bot_token:
             raise ValueError("SL_BOT_TOKEN is required")
+        self._channel_id = str(channel_id).strip()
+        self._poll_interval = max(1, int(poll_interval))
+        self._bot_user_id = ""
+        self._user_cache: dict = {}
+        self._channel_offsets: dict = {}
+        self._channel_name_cache: dict = {}
+        self._auto_bind_channels: list = []
+        self._auto_bind_index = 0
+        self._auto_bind_last_refresh = 0.0
+        self._rate_limit_until = 0.0
 
-    _channel_id = str(channel_id).strip()
+    def _is_allowed_message(self, sender_id: str, msg: str, channel_id: str = "") -> str:
+        candidate = self._parse_auth_candidate(msg)
+        with self._auth_lock:
+            if self._channel_id and channel_id != self._channel_id:
+                return "ignore"
+            if not self._auth_secret:
+                if not self._channel_id:
+                    label = self._channel_name_cache.get(channel_id, channel_id)
+                    print(f"[SLACK] Auto-bound to channel {label}")
+                    self._channel_id = channel_id
+                return "allow"
+            if candidate == self._auth_secret:
+                if self._authenticated_id is None:
+                    self._authenticated_id = sender_id
+                    self._channel_id = channel_id
+                    return "auth_bound"
+                return "ignore"
+            if self._authenticated_id is None:
+                return "ignore"
+            return "allow" if sender_id == self._authenticated_id else "ignore"
 
-    try:
-        _poll_interval = min(60, int(poll_interval))
-    except Exception:
-        _poll_interval = 60
+    def _api_call(self, method, params=None, timeout=30):
+        params = params or {}
+        body = urllib.parse.urlencode(params).encode("utf-8")
+        req = urllib.request.Request(
+            f"https://slack.com/api/{method}", data=body,
+            headers={"Authorization": f"Bearer {self._bot_token}",
+                     "Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        with self._auth_lock:
+            wait = self._rate_limit_until - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                headers = resp.headers
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                retry = max(1, int(exc.headers.get("Retry-After", 60)))
+                with self._auth_lock:
+                    self._rate_limit_until = time.time() + retry
+                raise _RateLimitError(retry) from exc
+            raise
+        if not payload.get("ok"):
+            err = payload.get("error", f"{method} failed")
+            if err == "ratelimited":
+                retry = max(1, int(headers.get("Retry-After", 60)))
+                with self._auth_lock:
+                    self._rate_limit_until = time.time() + retry
+                raise _RateLimitError(retry)
+            raise RuntimeError(err)
+        return payload
 
-    with _state_lock:
-        _user_cache.clear()
-        _channel_offsets.clear()
-        _channel_name_cache.clear()
-    _auto_bind_channels = []
-    _auto_bind_index = 0
-    _auto_bind_last_refresh = 0.0
-    _rate_limit_until = 0.0
-    _connected = False
-    _initialize_identity()
-    if _channel_id:
-        _validate_channel()
-        _initialize_cursor_for_channel(_channel_id)
-    else:
-        print("[SLACK] Starting adapter in auto-bind mode (channel not configured).")
-        _initialize_auto_bind_cursors()
+    def _get_display_name(self, user_id):
+        with self._auth_lock:
+            cached = self._user_cache.get(user_id)
+        if cached:
+            return cached
+        name = user_id
+        try:
+            payload = self._api_call("users.info", {"user": user_id}, timeout=15)
+            profile = (payload.get("user") or {}).get("profile") or {}
+            name = (profile.get("display_name") or profile.get("real_name") or
+                    (payload["user"].get("name")) or user_id).strip()
+        except Exception as exc:
+            print(f"[SLACK] Could not resolve user {user_id}: {exc}")
+        with self._auth_lock:
+            self._user_cache[user_id] = name
+        return name
 
-    _running = True
-    print(f"[SLACK] Starting adapter with channel target: {_channel_id or 'auto-bind'}")
-    t = threading.Thread(target=_poll_loop, daemon=True)
-    t.start()
-    return t
+    def _cache_channel(self, channel):
+        cid = str(channel.get("id", "")).strip()
+        name = str(channel.get("name", "")).strip()
+        if cid:
+            self._channel_name_cache[cid] = f"#{name}" if name else cid
 
+    def _list_joined_channels(self):
+        channels, cursor = [], ""
+        while True:
+            params = {"types": "public_channel,private_channel",
+                      "exclude_archived": "true", "limit": 200}
+            if cursor:
+                params["cursor"] = cursor
+            payload = self._api_call("conversations.list", params=params, timeout=20)
+            for ch in payload.get("channels") or []:
+                if ch.get("is_member"):
+                    cid = str(ch.get("id", "")).strip()
+                    if cid:
+                        self._cache_channel(ch)
+                        channels.append(cid)
+            cursor = str((payload.get("response_metadata") or {}).get("next_cursor", "")).strip()
+            if not cursor:
+                break
+        return channels
+
+    def _init_cursor(self, channel_id):
+        try:
+            payload = self._api_call("conversations.history",
+                                     {"channel": channel_id, "limit": 1}, timeout=15)
+            msgs = payload.get("messages") or []
+            ts = str(msgs[0].get("ts", "")).strip() if msgs else ""
+            self._channel_offsets[channel_id] = ts
+        except Exception as exc:
+            print(f"[SLACK] Could not initialize cursor for {channel_id}: {exc}")
+
+    def _refresh_auto_bind(self, force=False):
+        now = time.time()
+        if (not force) and self._auto_bind_channels and \
+                (now - self._auto_bind_last_refresh) < _AUTO_BIND_REFRESH_INTERVAL:
+            return self._auto_bind_channels
+        self._auto_bind_channels = self._list_joined_channels()
+        self._auto_bind_last_refresh = now
+        if self._auto_bind_index >= len(self._auto_bind_channels):
+            self._auto_bind_index = 0
+        return self._auto_bind_channels
+
+    def _next_auto_bind_channel(self):
+        if not self._auto_bind_channels:
+            return ""
+        cid = self._auto_bind_channels[self._auto_bind_index]
+        self._auto_bind_index = (self._auto_bind_index + 1) % len(self._auto_bind_channels)
+        return cid
+
+    def _poll_channel(self, channel_id):
+        oldest = self._channel_offsets.get(channel_id, "")
+        params = {"channel": channel_id, "limit": 15}
+        if oldest:
+            params["oldest"] = oldest
+            params["inclusive"] = "false"
+        payload = self._api_call("conversations.history", params=params, timeout=30)
+        messages = sorted(payload.get("messages") or [],
+                          key=lambda m: float(m.get("ts", 0.0)))
+        max_ts = oldest
+        for msg in messages:
+            ts = str(msg.get("ts", "")).strip()
+            if ts:
+                max_ts = ts
+            if msg.get("subtype"):
+                continue
+            text = str(msg.get("text", "")).strip()
+            user_id = str(msg.get("user", "")).strip()
+            if not text or not user_id or user_id == self._bot_user_id:
+                continue
+            state = self._is_allowed_message(user_id, text, channel_id)
+            name = self._get_display_name(user_id)
+            if state == "allow":
+                self._set_last(f"{name}: {text}")
+            elif state == "auth_bound":
+                self.send_message(f"Authentication successful for {name}.")
+        if max_ts != oldest:
+            self._channel_offsets[channel_id] = max_ts
+
+    def _run_loop(self) -> None:
+        print("[SLACK] Polling started")
+        while self._running:
+            try:
+                with self._auth_lock:
+                    bound = self._channel_id
+                if bound:
+                    if bound not in self._channel_offsets:
+                        self._init_cursor(bound)
+                    else:
+                        self._poll_channel(bound)
+                else:
+                    channels = self._refresh_auto_bind() or self._refresh_auto_bind(force=True)
+                    cid = self._next_auto_bind_channel()
+                    if cid:
+                        if cid not in self._channel_offsets:
+                            self._init_cursor(cid)
+                        else:
+                            self._poll_channel(cid)
+                self._connected = True
+            except _RateLimitError as exc:
+                self._connected = False
+                print(f"[SLACK] Rate limited. Backing off {exc.retry_after}s.")
+            except Exception as exc:
+                self._connected = False
+                print(f"[SLACK] Poll error: {exc}")
+            time.sleep(max(1, self._poll_interval))
+        self._connected = False
+        print("[SLACK] Polling stopped")
+
+    def send_message(self, text: str) -> None:
+        text = str(text).replace("\\n", "\n").replace("\r", "")
+        if not text:
+            return
+        with self._auth_lock:
+            target = self._channel_id
+        if not target:
+            return
+        for i in range(0, len(text), 3900):
+            chunk = text[i:i + 3900]
+            try:
+                self._api_call("chat.postMessage", {"channel": target, "text": chunk}, timeout=15)
+            except Exception as exc:
+                print(f"[SLACK] Send failed: {exc}")
+                return
+
+    def start(self, auth_secret=None) -> threading.Thread:
+        self._set_auth_secret(auth_secret)
+        payload = self._api_call("auth.test", timeout=15)
+        self._bot_user_id = str(payload.get("user_id", "")).strip()
+        if self._channel_id:
+            info = self._api_call("conversations.info",
+                                  {"channel": self._channel_id}, timeout=15)
+            self._cache_channel(info.get("channel") or {})
+            self._init_cursor(self._channel_id)
+            print(f"[SLACK] Channel ready: "
+                  f"{self._channel_name_cache.get(self._channel_id, self._channel_id)}")
+        else:
+            print("[SLACK] Starting in auto-bind mode.")
+            self._refresh_auto_bind(force=True)
+        print(f"[SLACK] Starting adapter with channel target: {self._channel_id or 'auto-bind'}")
+        return super().start(auth_secret=None)  # secret already set above
+
+_instance: SlackChannel | None = None
+
+def start_slack(bot_token, channel_id="", poll_interval=60, auth_secret=None):
+    global _instance
+    _instance = SlackChannel(bot_token, channel_id, poll_interval)
+    return _instance.start(auth_secret)
 
 def stop_slack():
-    global _running
-    _running = False
+    if _instance:
+        _instance.stop()
+
+def getLastMessage() -> str:
+    return _instance.getLastMessage() if _instance else ""
 
 
-def send_message(text):
-    text = str(text).replace("\\n", "\n").replace("\r", "")
-    if not text:
-        return
-    if not _channel_id:
-        return
-
-    max_len = 3900
-    for i in range(0, len(text), max_len):
-        chunk = text[i:i + max_len]
-        if not chunk:
-            continue
-        try:
-            _api_call("chat.postMessage", {"channel": _channel_id, "text": chunk}, timeout=15)
-        except Exception as exc:
-            print(f"[SLACK] Send failed: {exc}")
-            return
+def send_message(text: str) -> None:
+    if _instance:
+        _instance.send_message(text)
