@@ -33,26 +33,23 @@
     "           (Inheritance $1 Bird)) (stv 1.0 0.9))"
     "          ((Inheritance Pingu (IntSet Feathered)) (stv 1.0 0.9)))"))
 
-(= (getFrameSkillsCompact)
-   ("send string"
-"remember string"
-"query short_phrase"
-"episodes time_string"
-"pin string"
-"shell command"
-"read-file filename"
-"write-file filename string"
-"append-file filename string"
-"search query"
-"tavily-search query"
-"technical-analysis ticker"
-"metta sexpression"
-"complete-goals-stm summary"
-"complete-goals-ltm summary"
-"compact-frame summary"
-"clear-frame-junk summary"
-"query-frame-memory short_phrase"))
-
+;; Skills for frame management
+(= (contextFramesSkills)
+      ("CONTEXT_FRAME_SKILLS:"
+       "- Create a new top-level frame from a task description: new-frame string"
+       "- Create a new slow autonomous frame: new-autonomous-frame string"
+       "- Switch current focus to frame ID: switch-frame frameID"
+       "- To switch between Slow mode and Fast mode: switch-mode"
+       "- Show the bounded RootFrame: show-root-frame"
+       "- Show the current focused Frame: show-current-frame"
+       "- Show the external FrameRef index space: show-frame-index"
+       "- Show the active external frame space: show-active-framespace"
+       "- Show the completed external frame space: show-completed-framespace"
+       "- Add a hypothesis to the current focused Frame: ctx-add-hypothesis id hypothesis"
+       "- Add a result entry to the current focused Frame: ctx-add-result variant metrics"
+       "- Complete the current focused Frame and store compact summary in STM: complete-goals-stm string"
+       "- Complete the current focused Frame and store reusable summary in LTM: complete-goals-ltm string"
+       "- Clear transient hypotheses/results from current focused Frame: clear-frame-junk string"))
 
 (= (read-file $file)
    (progn (translatePredicate (exists_file $file))

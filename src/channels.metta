@@ -65,7 +65,7 @@
                    (if (== (commchannel) irc)
                        (let $temp (cut) (py-call (irc.send_message $safemsg)))
                        (if (== (commchannel) telegram)
-                           (let $temp (cut) (py-call (telegram.send_message $safemsg)))
+                           (let $temp (cut) (py-call (tg_channel.send_message $safemsg)))
                            (if (== (commchannel) slack)
                                (let $temp (cut) (py-call (slack.send_message $safemsg)))
                                (if (== (commchannel) mattermost)

@@ -24,8 +24,8 @@
           (change-state! &prevmsg "")
           (change-state! &lastresults "")
           (change-state! &loops (maxNewInputLoops))
-          (configure useFrames False)
-          (if (== (useFrames) True) (initContextFrame) _)))
+          (configure useFrames True)
+          ))
 
 
 (= (getContext)
@@ -34,23 +34,14 @@
          ("PROMPT: " (getPrompt) (newline)
           "CURRENT_CONTEXT_FRAME_S_EXPR: " (contextFrameForPrompt) (newline)
           "SKILL_SET: " (getSkills) (newline)
-          "FRAME_RULES: " (newline)
-             "- Treat CURRENT_CONTEXT_FRAME_S_EXPR as the authoritative working state." (newline)
-             "- The frame is compact; do not expect full raw history inside it." (newline)
-             "- Use query or episodes only when older details are needed." (newline)
-             "- Choose actions that advance active goals in the goals field." (newline)
-             "- If the active goal is completed, call complete-goals-stm or complete-goals-ltm after sending the final answer." (newline)
-             "- Use complete-goals-ltm only for reusable, durable, semantically useful summaries." (newline)
-             "- Do not store raw command results in long-term memory." (newline)
-             "- Respect constraints, budget, deliverables, and mode." (newline)
-             "- Invoke only commands from SKILL_SET." (newline)
-             "- Do not output hidden reasoning, analysis, or explanations unless using send." (newline)
+          "CONTEXT_FRAME_SKILLS: " (contextFramesSkills) (newline)
           "OUTPUT_FORMAT: Up to 5 skill command lines, do not wrap quotes around args, do not use variables:" (newline)
           "toolName1 arg1" (newline)
           "toolName2 arg2" (newline)
           "toolName3 arg3" (newline)
           "toolName4 arg4" (newline)
           "toolName5 arg5" (newline)
+          "LAST_SKILL_USE_RESULTS: " (get-state &lastresults) (newline)
           "TIME: " (get_time_as_string)))))
 
 (= (getLegacyContext)
@@ -86,7 +77,8 @@
           (progn
              (initLoop)
              (initMemory)
-             (initChannels))
+             (initChannels)
+             (if (== (useFrames) True) (initContextFrame) _))
           (change-state! &loops (- (get-state &loops) 1)))
 
       (println! (---------iteration $k))
@@ -105,9 +97,14 @@
              ($_ (if (and $msgnew (== (useFrames) True))
                     (ctx-ingest-user-message $msg)
                     _))
+              
+            ($_ (if (and (== (useFrames) True) (not (ctx-has-active-goals)))
+                     (ctx-maintain-frame) _))
 
              ($_ (if (and (> $k 1) $msgnew)
-                    (change-state! &loops (maxNewInputLoops))
+                    (progn 
+                        (change-state! &loops (maxNewInputLoops))
+                        (if (and (== (useFrames) True) (== (get-state &cfv2-root-mode) Slow)) (switch-mode) _))
                     _))
 
              ; Prompt is now frame-based.
@@ -117,10 +114,12 @@
              (let* (($lastmessage
                        (if $msgnew
                            (if (== (useFrames) True)
-                           "NEW_INPUT_HAS_BEEN_ADMITTED_TO_CONTEXT_FRAME. Select the next skill command from the frame." (HUMAN-MSG: $msg) )
+                           "NEW_INPUT_HAS_BEEN_ADMITTED_AS_ACTIVE_FRAME. Continue current frame or switch-frame to a higher-priority admitted frame if appropriate."
+                           ; (HUMAN-MSG: $msg) 
+                           )
                            (if (and (spamShield) (== (useFrames) True))
-                               "NO_NEW_INPUT. Continue only if the context frame contains an active useful goal. DO NOT RE-SEND OR SPAM."
-                               " DO NOT RE-SEND OR SPAM!")))
+                               "NO_NEW_INPUT. Continue only if the context frame contains an active useful goal or select relevant frame from the active space DO NOT RE-SEND OR SPAM!"
+                               "DO NOT RE-SEND OR SPAM!")))
                     ($_ (change-state! &nextWakeAt (+ (get_time) (wakeupInterval))))
                     ($_ (println! $lastmessage))
                     ($send (py-str ($prompt :-:-:-: $lastmessage)))
@@ -170,21 +169,19 @@
                    (if (or $msgnew (not (== $sexpr ())))
                        (addToHistory $msg $response $sexpr $msgnew)
                        _)
-
                    ; Frame-native audit log.
                    (if (== (useFrames) True)
                      (progn
                         (ctx-record-command-batch $sexpr $results)
                         (ctx-maintain-frame))
                      _)
-
                    ; Compatibility state.
                    (change-state! &lastresults
                      (string-safe (py-call (helper.compact_plain (repr $results) 1200))))))
 
              (if (> (get_time) (get-state &nextWakeAt))
                  (change-state! &loops (+ 1 (maxWakeLoops)))
-                 _)))
+                 (if (== (get-state &cfv2-root-mode) Fast) (switch-mode) _))))
 
       (sleep (sleepInterval))
                       (cut)

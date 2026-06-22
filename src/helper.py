@@ -2,6 +2,7 @@ from collections import deque
 import re
 import hashlib
 from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 
 TS_RE = re.compile(r'^\("(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"')
 
@@ -135,6 +136,162 @@ def normalize_string(x):
         return str(x).encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
     except Exception:
         return str(x)
+
+# ---- HyperClaw Context Frames V2 helper additions ----
+
+def cfv2_now() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _unescape_repr_id(value: str) -> str:
+    value = str(value).strip()
+    value = value.replace("'", "").replace('"', "")
+    value = value.replace("[", "").replace("]", "")
+    return value.strip()
+
+
+def _balanced_exprs(text: str, head: str) -> List[str]:
+    """Extract top-level balanced s-expressions whose head is `head`.
+
+    This is a pragmatic parser for scorer/runtime helper use. It is not a full MeTTa parser,
+    but it handles strings and nested parentheses well enough for Frame/FrameRef atoms.
+    """
+    text = str(text)
+    starts = []
+    token = f"({head}"
+    i = 0
+    while True:
+        idx = text.find(token, i)
+        if idx < 0:
+            break
+        starts.append(idx)
+        i = idx + len(token)
+
+    out = []
+    for start in starts:
+        depth = 0
+        in_str = False
+        escaped = False
+        for j in range(start, len(text)):
+            ch = text[j]
+            if in_str:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    out.append(text[start : j + 1])
+                    break
+    return out
+
+
+def _field(expr: str, field_name: str) -> Optional[str]:
+    """Return the raw value of a first-level-ish `(field value)` form.
+
+    This intentionally works on the stable constructor format emitted by the MeTTa code.
+    """
+    pattern = f"({field_name}"
+    idx = expr.find(pattern)
+    if idx < 0:
+        return None
+    start = idx + len(pattern)
+    # Skip whitespace.
+    while start < len(expr) and expr[start].isspace():
+        start += 1
+    if start >= len(expr):
+        return None
+    if expr[start] == "(":
+        depth = 0
+        in_str = False
+        escaped = False
+        for j in range(start, len(expr)):
+            ch = expr[j]
+            if in_str:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return expr[start : j + 1]
+        return None
+    if expr[start] == '"':
+        escaped = False
+        for j in range(start + 1, len(expr)):
+            ch = expr[j]
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                return expr[start : j + 1]
+        return None
+    # Atom/number until whitespace or close paren.
+    end = start
+    while end < len(expr) and not expr[end].isspace() and expr[end] != ")":
+        end += 1
+    return expr[start:end]
+
+def cfv2_refs_completed_after(index_repr, date_prefix) -> str:
+    """Return completed FrameRefs whose completed-timestamp starts with or compares after date_prefix.
+
+    date_prefix can be YYYY-MM-DD or a longer timestamp prefix. This is intentionally simple.
+    """
+    prefix = _unescape_repr_id(date_prefix)
+    refs = []
+    for ref in _balanced_exprs(str(index_repr), "FrameRef"):
+        status = _unescape_repr_id(_field(ref, "status") or "")
+        t = _unescape_repr_id(_field(ref, "completed-timestamp") or "")
+        if status == "Completed" and t and t >= prefix:
+            refs.append(ref)
+    return "(" + " ".join(refs) + ")"
+
+## TODO: Replace this using metta functions
+def cfv2_select_next_frame_id(index_repr, root_mode="Fast") -> str:
+    """Select highest-priority active frame matching root mode from FrameRef space.
+
+    If multiple FrameRefs exist for a frame, the last one wins. This supports append-only refs.
+    """
+    mode = _unescape_repr_id(root_mode)
+    latest: Dict[str, Tuple[float, str, str, str]] = {}
+    for ref in _balanced_exprs(str(index_repr), "FrameRef"):
+        fid = _unescape_repr_id(_field(ref, "frameID") or "")
+        status = _unescape_repr_id(_field(ref, "status") or "")
+        frame_mode = _unescape_repr_id(_field(ref, "frame-mode") or "")
+        space = _unescape_repr_id(_field(ref, "space") or "")
+        priority_raw = _unescape_repr_id(_field(ref, "priority") or "0")
+        try:
+            priority = float(priority_raw)
+        except Exception:
+            priority = 0.0
+        if fid:
+            latest[fid] = (priority, status, frame_mode, space)
+
+    best_id = "NON"
+    best_priority = float("-inf")
+    for fid, (priority, status, frame_mode, space) in latest.items():
+        if space == "Active" and status in {"Active", "Focused"} and frame_mode == mode:
+            if priority > best_priority:
+                best_priority = priority
+                best_id = fid
+    return best_id
 
 def test_balance_parenthesis():
 	assert balance_parentheses('(write-file test.txt hello world)') == '((write-file "test.txt" "hello world"))'
