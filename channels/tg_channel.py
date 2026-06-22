@@ -74,6 +74,7 @@ class _TelegramChannel:
         self._ready_windows = []
         self._polling_task = None
         self._typing_threads = {}
+        self._TYPING_TIMEOUT = 120  # max seconds to show typing regardless of agent state
 
     def _normalize_chat_id(self, chat_id):
         if chat_id is None:
@@ -545,22 +546,29 @@ class _TelegramChannel:
             self.loop.call_soon_threadsafe(self._polling_task.cancel)
 
     def _start_typing(self, chat_id):
-        """Start a background thread that sends typing action every 4s until stopped."""
+        """Start typing indicator for a chat.
+
+        Sends typing action every 4s until one of three things happens:
+        - send_message() is called  -> _stop_typing() sets the stop event
+        - a new message is dequeued -> _start_typing() replaces this one
+        - hard timeout is reached   -> typing_loop exits on its own
+        """
         self._stop_typing(chat_id)
         stop_event = threading.Event()
+        deadline = time.time() + self._TYPING_TIMEOUT
         self._typing_threads[chat_id] = stop_event
 
         def typing_loop():
-            while not stop_event.is_set():
+            while not stop_event.is_set() and time.time() < deadline:
                 if self.connected and self.bot and self.loop:
                     asyncio.run_coroutine_threadsafe(
                         self.bot.send_chat_action(chat_id=chat_id, action="typing"),
                         self.loop
                     )
                 stop_event.wait(4)
+            self._typing_threads.pop(chat_id, None)
 
-        t = threading.Thread(target=typing_loop, daemon=True)
-        t.start()
+        threading.Thread(target=typing_loop, daemon=True).start()
 
     def _stop_typing(self, chat_id):
         """Stop the typing indicator for a given chat."""
