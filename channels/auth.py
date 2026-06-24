@@ -7,6 +7,7 @@ _proxy_url = None
 _auth_enabled = None
 _CHANNEL_DIR_NAME = ".channel"
 _CHANNEL_AUTH_USER_FILE = "authenticated-user.json"
+_user_ID_processed = False
 
 
 def get_proxy_url():
@@ -55,6 +56,9 @@ def _channel_auth_user_path():
 
 
 def store_channel_authenticated_user_id(channel_identifier, user_id):
+    global _user_ID_processed
+    if _user_ID_processed:
+        return False
     """Record an authenticated channel user ID in the memory directory."""
     channel_identifier = str(channel_identifier or "").strip() or "DEFAULT"
     user_id = str(user_id).strip()
@@ -73,10 +77,16 @@ def store_channel_authenticated_user_id(channel_identifier, user_id):
             f.write("\n")
     except OSError as e:
         raise RuntimeError("Failed to write channel authenticated user record") from e
+    _user_ID_processed = True
     return True
 
 
 def get_channel_saved_user_id(channel_identifier, user_id):
+    global _user_ID_processed
+    # For any single run of OmegaClaw, allow only a single save of a user-id or verification    
+    if _user_ID_processed:
+        return False
+    
     channel_identifier = str(channel_identifier or "").strip() or "DEFAULT"
     user_id = str(user_id).strip()
     if not user_id:
@@ -92,6 +102,7 @@ def get_channel_saved_user_id(channel_identifier, user_id):
                 except (AttributeError, json.JSONDecodeError):
                     continue
                 if saved_channel_identifier == channel_identifier and saved_user_id == user_id:
+                    _user_ID_processed = True
                     return True
     except Exception as e:
         raise RuntimeError("Failed to read channel authenticated user records") from e
