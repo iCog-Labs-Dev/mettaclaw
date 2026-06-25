@@ -32,16 +32,15 @@ class SlackChannel(BaseChannel):
     def __init__(self, bot_token, channel_id="", poll_interval=60):
         super().__init__()
         self._bot_token = str(bot_token).strip()
-        if not self._bot_token:
-            raise ValueError("SL_BOT_TOKEN is required")
         self._api_base = "https://slack.com"
         self._channel_id = str(channel_id).strip()
         self._poll_interval = max(1, int(poll_interval))
         self._bot_user_id = ""
-        self._user_cache: dict = {}
-        self._channel_offsets: dict = {}
-        self._channel_name_cache: dict = {}
-        self._auto_bind_channels: list = []
+        self._state_lock = threading.Lock()
+        self._user_cache = {}
+        self._channel_offsets = {}
+        self._channel_name_cache = {}
+        self._auto_bind_channels = []
         self._auto_bind_index = 0
         self._auto_bind_last_refresh = 0.0
         self._rate_limit_until = 0.0
@@ -52,12 +51,15 @@ class SlackChannel(BaseChannel):
                 return "ignore"
             if not auth.is_auth_enabled():
                 if not self._channel_id:
-                    label = self._channel_name_cache.get(channel_id, channel_id)
+                    with self._state_lock:
+                        label = self._channel_name_cache.get(channel_id, channel_id)
                     print(f"[SLACK] Auto-bound to channel {label}")
                     self._channel_id = channel_id
                 return "allow"
             if self._authenticated_id is not None:
                 return "allow" if sender_id == self._authenticated_id else "ignore"
+            if not self._is_auth_command(msg):
+                return "ignore"
             candidate = self._parse_auth_candidate(msg)
             if auth.verify_token(candidate):
                 self._authenticated_id = sender_id
@@ -74,7 +76,7 @@ class SlackChannel(BaseChannel):
                      "Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        with self._auth_lock:
+        with self._state_lock:
             wait = self._rate_limit_until - time.time()
         if wait > 0:
             time.sleep(wait)
@@ -85,7 +87,7 @@ class SlackChannel(BaseChannel):
         except urllib.error.HTTPError as exc:
             if exc.code == 429:
                 retry = max(1, int(exc.headers.get("Retry-After", 60)))
-                with self._auth_lock:
+                with self._state_lock:
                     self._rate_limit_until = time.time() + retry
                 raise _RateLimitError(retry) from exc
             raise
@@ -93,14 +95,14 @@ class SlackChannel(BaseChannel):
             err = payload.get("error", f"{method} failed")
             if err == "ratelimited":
                 retry = max(1, int(headers.get("Retry-After", 60)))
-                with self._auth_lock:
+                with self._state_lock:
                     self._rate_limit_until = time.time() + retry
                 raise _RateLimitError(retry)
             raise RuntimeError(err)
         return payload
 
     def _get_display_name(self, user_id):
-        with self._auth_lock:
+        with self._state_lock:
             cached = self._user_cache.get(user_id)
         if cached:
             return cached
@@ -112,7 +114,7 @@ class SlackChannel(BaseChannel):
                     (payload["user"].get("name")) or user_id).strip()
         except Exception as exc:
             print(f"[SLACK] Could not resolve user {user_id}: {exc}")
-        with self._auth_lock:
+        with self._state_lock:
             self._user_cache[user_id] = name
         return name
 
@@ -202,7 +204,7 @@ class SlackChannel(BaseChannel):
         print("[SLACK] Polling started")
         while self._running:
             try:
-                with self._auth_lock:
+                with self._state_lock:
                     bound = self._channel_id
                 if bound:
                     if bound not in self._channel_offsets:
@@ -232,7 +234,7 @@ class SlackChannel(BaseChannel):
         text = str(text).replace("\\n", "\n").replace("\r", "")
         if not text:
             return
-        with self._auth_lock:
+        with self._state_lock:
             target = self._channel_id
         if not target:
             return
@@ -249,6 +251,8 @@ class SlackChannel(BaseChannel):
         if proxy:
             self._bot_token = "proxy"
             self._api_base = f"{proxy}/slack"
+        elif not self._bot_token:
+            raise ValueError("SL_BOT_TOKEN is required")
         payload = self._api_call("auth.test", timeout=15)
         self._bot_user_id = str(payload.get("user_id", "")).strip()
         if self._channel_id:
@@ -264,7 +268,7 @@ class SlackChannel(BaseChannel):
         print(f"[SLACK] Starting adapter with channel target: {self._channel_id or 'auto-bind'}")
         return super().start()
 
-_instance: SlackChannel | None = None
+_instance = None
 
 def start_slack(bot_token, channel_id="", poll_interval=60):
     global _instance

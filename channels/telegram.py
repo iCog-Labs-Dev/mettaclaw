@@ -11,8 +11,6 @@ class TelegramChannel(BaseChannel):
     def __init__(self, bot_token, chat_id="", poll_timeout=20):
         super().__init__()
         self._bot_token = str(bot_token).strip()
-        if not self._bot_token:
-            raise ValueError("TG_BOT_TOKEN is required")
         self._api_base = f"https://api.telegram.org/bot{self._bot_token}"
         self._chat_id = str(chat_id).strip()
         self._poll_timeout = max(1, int(poll_timeout))
@@ -32,6 +30,8 @@ class TelegramChannel(BaseChannel):
                 if chat_id != self._chat_id:
                     return "ignore"
                 return "allow" if sender_id == self._authenticated_id else "ignore"
+            if not self._is_auth_command(msg):
+                return "ignore"
             candidate = self._parse_auth_candidate(msg)
             if auth.verify_token(candidate):
                 self._authenticated_id = sender_id
@@ -142,11 +142,13 @@ class TelegramChannel(BaseChannel):
         if proxy:
             self._bot_token = "proxy"
             self._api_base = f"{proxy}/telegram"
+        elif not self._bot_token:
+            raise ValueError("TG_BOT_TOKEN is required")
         print(f"[TELEGRAM] Starting adapter with chat target: {self._chat_id or 'auto-bind'}")
         self._initialize_offset()
         return super().start()
 
-_instance: TelegramChannel | None = None
+_instance = None
 
 def start_telegram(bot_token, chat_id="", poll_timeout=20):
     global _instance

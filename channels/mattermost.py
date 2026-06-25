@@ -76,7 +76,7 @@ class MattermostChannel(BaseChannel):
         requests.post(f"{self._url}/api/v4/posts", headers=self._headers,
                       json={"channel_id": self._channel_id, "message": text})
 
-_instance: MattermostChannel | None = None
+_instance = None
 
 def start_mattermost(url, channel_id, bot_token):
     global _instance

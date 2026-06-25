@@ -39,12 +39,19 @@ class BaseChannel(abc.ABC):
             return text[6:].strip()
         return text
 
+    @staticmethod
+    def _is_auth_command(msg: str) -> bool:
+        lower = msg.strip().lower()
+        return lower.startswith("auth ") or lower.startswith("/auth ")
+
     def _is_allowed_message(self, sender_id: str, msg: str) -> str:
         with self._auth_lock:
             if not auth.is_auth_enabled():
                 return "allow"
             if self._authenticated_id is not None:
                 return "allow" if sender_id == self._authenticated_id else "ignore"
+            if not self._is_auth_command(msg):
+                return "ignore"
             candidate = self._parse_auth_candidate(msg)
             if auth.verify_token(candidate):
                 self._authenticated_id = sender_id

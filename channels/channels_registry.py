@@ -7,8 +7,8 @@ _REGISTRY = {
         lambda token, channel_id, poll_interval, server_url: (
             channel_id or "##omegaclaw",
             server_url or "irc.quakenet.org",
-            6667,
-            "omegaclaw",
+            int(os.environ.get("IRC_PORT", "6667")),
+            os.environ.get("IRC_USER", "omegaclaw"),
         ),
     ),
     "telegram": (

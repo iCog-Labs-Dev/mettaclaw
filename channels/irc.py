@@ -27,6 +27,8 @@ class IRCChannel(BaseChannel):
                 return "allow"
             if self._authenticated_id is not None:
                 return "allow" if norm_nick == self._authenticated_id else "ignore"
+            if not self._is_auth_command(msg):
+                return "ignore"
             candidate = self._parse_auth_candidate(msg)
             if auth.verify_token(candidate):
                 self._authenticated_id = norm_nick
@@ -116,7 +118,7 @@ class IRCChannel(BaseChannel):
         print("[IRC] Disconnected")
 
 
-_instance: IRCChannel | None = None
+_instance = None
 
 
 def start_irc(channel, server="irc.quakenet.org", port=6667, nick="omegaclaw"):
