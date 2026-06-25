@@ -1,163 +1,141 @@
-import os
 import random
 import socket
+import textwrap
 import threading
 import time
-import textwrap
+
 import auth
-
-_running = False
-_sock = None
-_sock_lock = threading.Lock()
-_last_message = ""
-_msg_lock = threading.Lock()
-_channel = None
-_connected = False
-_auth_lock = threading.Lock()
-_authenticated_nick = None
-
-def _send(cmd):
-    with _sock_lock:
-        if _sock:
-            _sock.sendall((cmd + "\r\n").encode())
-    time.sleep(1)
-
-def _set_last(msg):
-    global _last_message
-    with _msg_lock:
-        if _last_message == "":
-            _last_message = msg
-        else:
-            _last_message = _last_message + " | " + msg
-
-def getLastMessage():
-    global _last_message
-    with _msg_lock:
-        tmp = _last_message
-        _last_message = ""
-        return tmp
+from channels.base import BaseChannel
 
 
-def _normalize_nick(nick):
-    return nick.strip().lower()
+class IRCChannel(BaseChannel):
+    def __init__(self, channel, server, port, nick):
+        super().__init__()
+        if not channel.startswith("#"):
+            channel = f"#{channel}"
+        self._channel = channel
+        self._server = server
+        self._port = int(port)
+        self._nick = f"{nick}{random.randint(1000, 9999)}"
+        self._sock = None
+        self._sock_lock = threading.Lock()
 
-
-def _parse_auth_candidate(msg):
-    text = msg.strip()
-    lower = text.lower()
-    if lower.startswith("auth "):
-        return text[5:].strip()
-    if lower.startswith("/auth "):
-        return text[6:].strip()
-    return text
-
-def _is_auth_command(msg):
-    lower = msg.strip().lower()
-    return lower.startswith("auth ") or lower.startswith("/auth ")
-
-def _is_allowed_message(nick, msg):
-    global _authenticated_nick
-    norm_nick = _normalize_nick(nick)
-    with _auth_lock:
-        if not auth.is_auth_enabled():
-            return "allow"
-        if _authenticated_nick is not None:
-            return "allow" if norm_nick == _authenticated_nick else "ignore"
-        if not _is_auth_command(msg):
+    def _is_allowed_message(self, sender_id: str, msg: str) -> str:
+        norm_nick = sender_id.strip().lower()
+        with self._auth_lock:
+            if not auth.is_auth_enabled():
+                return "allow"
+            if self._authenticated_id is not None:
+                return "allow" if norm_nick == self._authenticated_id else "ignore"
+            if not self._is_auth_command(msg):
+                return "ignore"
+            candidate = self._parse_auth_candidate(msg)
+            if auth.verify_token(candidate):
+                self._authenticated_id = norm_nick
+                return "auth_bound"
             return "ignore"
-        candidate = _parse_auth_candidate(msg)
-        if auth.verify_token(candidate):
-            _authenticated_nick = norm_nick
-            return "auth_bound"
-        return "ignore"
 
-def _irc_loop(channel, server, port, nick):
-    global _running, _sock, _connected
-    print(f"[IRC] Connecting to {server}:{port} as {nick} for channel {channel}")
-    try:
-        sock = socket.create_connection((server, int(port)), timeout=15)
-        sock.settimeout(60)
-        print("[IRC] TCP connected")
-    except OSError as e:
-        print(f"[IRC] Connect failed: {e}")
-        return
-    _sock = sock
-    _send(f"NICK {nick}")
-    _send(f"USER {nick} 0 * :{nick}")
-    #_send(f"JOIN {channel}")
-    read_buffer = ""
-    while _running:
+    def _send_raw(self, cmd: str) -> None:
+        with self._sock_lock:
+            if self._sock:
+                self._sock.sendall((cmd + "\r\n").encode())
+        time.sleep(1)
+
+    def send_message(self, text: str) -> None:
+        segments = text.replace("\r", "").split("\\n")
+        lines = []
+        for seg in segments:
+            lines.extend(textwrap.wrap(seg, width=400, break_long_words=True, break_on_hyphens=False))
+        for chunk in lines:
+            try:
+                if self._connected and self._channel:
+                    self._send_raw(f"PRIVMSG {self._channel} :{chunk}")
+            except Exception as e:
+                print(f"[IRC] send error: {e}")
+
+    def _run_loop(self) -> None:
+        print(f"[IRC] Connecting to {self._server}:{self._port} as {self._nick}")
         try:
-            data = sock.recv(4096).decode(errors="ignore")
-            if not data:
-                break
-        except socket.timeout:
-            continue
-        except OSError:
-            break
-        read_buffer += data
-        while "\r\n" in read_buffer:
-            line, read_buffer = read_buffer.split("\r\n", 1)
-            if not line:
+            sock = socket.create_connection((self._server, self._port), timeout=15)
+            sock.settimeout(60)
+        except OSError as e:
+            print(f"[IRC] Connect failed: {e}")
+            return
+
+        self._sock = sock
+        self._send_raw(f"NICK {self._nick}")
+        self._send_raw(f"USER {self._nick} 0 * :{self._nick}")
+
+        buf = ""
+        while self._running:
+            try:
+                data = sock.recv(4096).decode(errors="ignore")
+                if not data:
+                    break
+            except socket.timeout:
                 continue
-            if line.startswith("PING"):
-                _send(f"PONG {line.split()[1]}")
-            parts = line.split()
-            if len(parts) > 1 and parts[1] == "001":
-                _connected = True
-                print(f"[IRC] Registered. Joining {_channel}")
-                _send(f"JOIN {_channel}")
-            elif len(parts) > 1 and parts[1] in {"403", "405", "471", "473", "474", "475"}:
-                print(f"[IRC] Join failed: {line}")
-            elif len(parts) > 1 and parts[1] == "433":
-                print(f"[IRC] Nickname in use: {line}")
-            elif line.startswith(":") and " PRIVMSG " in line:
-                try:
-                    prefix, trailing = line[1:].split(" PRIVMSG ", 1)
-                    nick = prefix.split("!", 1)[0]
+            except OSError:
+                break
 
-                    if " :" not in trailing:
-                        continue  # malformed, ignore safely
+            buf += data
+            while "\r\n" in buf:
+                line, buf = buf.split("\r\n", 1)
+                if not line:
+                    continue
+                if line.startswith("PING"):
+                    self._send_raw(f"PONG {line.split()[1]}")
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                if parts[1] == "001":
+                    self._connected = True
+                    print(f"[IRC] Registered. Joining {self._channel}")
+                    self._send_raw(f"JOIN {self._channel}")
+                elif parts[1] in {"403", "405", "471", "473", "474", "475"}:
+                    print(f"[IRC] Join failed: {line}")
+                elif parts[1] == "433":
+                    print(f"[IRC] Nickname in use: {line}")
+                elif line.startswith(":") and " PRIVMSG " in line:
+                    try:
+                        prefix, trailing = line[1:].split(" PRIVMSG ", 1)
+                        nick = prefix.split("!", 1)[0]
+                        if " :" not in trailing:
+                            continue  # malformed, ignore safely
+                        msg = trailing.split(" :", 1)[1]
+                        state = self._is_allowed_message(nick, msg)
+                        if state == "allow":
+                            self._set_last(f"{nick}: {msg}")
+                        elif state == "auth_bound":
+                            self._send_raw(f"PRIVMSG {self._channel} :Authentication successful for {nick}.")
+                    except Exception:
+                        pass
 
-                    msg = trailing.split(" :", 1)[1]
-                    state = _is_allowed_message(nick, msg)
-                    if state == "allow":
-                        _set_last(f"{nick}: {msg}")
-                    elif state == "auth_bound":
-                        _send(f"PRIVMSG {_channel} :Authentication successful for {nick}.")
-                except Exception as e:
-                    print(f"[IRC]: exception caught {repr(e)}")
-    _connected = False
-    with _sock_lock:
-        _sock = None
-    sock.close()
-    print("[IRC] Disconnected")
+        self._connected = False
+        with self._sock_lock:
+            self._sock = None
+        sock.close()
+        print("[IRC] Disconnected")
 
-def start_irc(channel, server="irc.libera.chat", port=6667, nick="omegaclaw"):
-    global _running, _channel, _connected
-    nick = f"{nick}{random.randint(1000, 9999)}"
-    if not channel.startswith("#"):
-        channel = f"#{channel}"
-    _running = True
-    _connected = False
-    _channel = channel
-    t = threading.Thread(target=_irc_loop, args=(channel, server, port, nick), daemon=True)
-    t.start()
-    return t
+
+_instance = None
+
+
+def start_irc(channel, server="irc.quakenet.org", port=6667, nick="omegaclaw"):
+    global _instance
+    _instance = IRCChannel(channel, server, port, nick)
+    return _instance.start()
+
 
 def stop_irc():
-    global _running
-    _running = False
+    if _instance:
+        _instance.stop()
 
-def send_message(text):
-    max_len = 400
-    segments = text.replace("\r", "").split("\\n")
-    lines = []
-    for segment in segments:
-        lines.extend(textwrap.wrap(segment, width=max_len, break_long_words=True, break_on_hyphens=False))
-    for chunk in lines:
-        try:
-            if _connected and _channel:
-                 _send(f"PRIVMSG {_channel} :{chunk}")
-        except Exception as e:
-            print(f"[IRC] error in send_message on channel {_channel}: {e}")
+
+def getLastMessage() -> str:
+    return _instance.getLastMessage() if _instance else ""
+
+
+def send_message(text: str) -> None:
+    if _instance:
+        _instance.send_message(text)
