@@ -181,14 +181,19 @@ class _TelegramChannel:
         """Retrieve and consume the most recent processed window, thread-safe."""
         with self.msg_lock:
             if self._message_queue:
-                ready_chat_id, text, reply_id, pending_media = self._message_queue.pop(0)
+                ready_chat_id, text, reply_id, payload = self._message_queue.pop(0)
 
                 if not self._is_allowed_chat(ready_chat_id) and ready_chat_id not in self.admin_ids:
                         return None
 
                 self.chat_id = ready_chat_id
                 self._reply_to_id = reply_id
-                media_handler.set_pending_media(pending_media)
+                if isinstance(payload, dict):
+                    media_handler.set_pending_media(payload.get("media"))
+                    media_handler.set_pending_context(payload.get("context"))
+                else:
+                    media_handler.set_pending_media(payload)
+                    media_handler.set_pending_context(None)
                 self._start_typing(str(ready_chat_id))
                 return f"[{ready_chat_id}] [{reply_id}] {text}"
             return None
@@ -542,9 +547,10 @@ class _TelegramChannel:
             await self._send_block_notice(message, "Failed to process the PDF. Please try again.")
             return
 
-        display_text = f"{name}: {pdf_text}"
+        user_request = f" — {caption}" if caption else " — please summarize this PDF"
+        display_text = f"{name}: [uploaded PDF '{filename}']{user_request}"
         with self.msg_lock:
-            self._message_queue.append((chat_id, display_text, message.message_id, None))
+            self._message_queue.append((chat_id, display_text, message.message_id, {"media": None, "context": pdf_text}))
 
     async def _on_media_rejected(self, message: types.Message):
         if not self._is_chat_authorized(message):
@@ -731,9 +737,10 @@ def stop_telegram():
     _channel.stop()
 
 def send_message(text):
-    """Send a message to the active Telegram chat."""    
+    """Send a message to the active Telegram chat."""
     target_chat_id = _channel.chat_id
     target_reply_id = None
+    text = text.strip().strip('“”‘’"\'').strip()
     m = re.match(r'^\[(-?\d+)\]\s*(?:\[(\d+)\])?\s*(.*)$', text, re.DOTALL)
     if m:
         target_chat_id = m.group(1)
@@ -754,6 +761,10 @@ def send_message(text):
         return "Error: Refused: Unsafe response content."
         
     _channel.send_message(text, chat_id=target_chat_id, reply_to_id=target_reply_id)
+    # The agent has replied to the user, so drop any attached PDF/image context.
+    # This bounds the out-of-band slot to "arrival → first reply" and stops the
+    # 20k-char PDF (or large base64 image) being re-injected on idle-tail cycles.
+    media_handler.clear_pending()
 
 def is_search_disabled():
     """Check if admin disabled searching."""

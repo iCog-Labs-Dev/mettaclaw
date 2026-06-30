@@ -211,11 +211,14 @@ _register_provider(name="OpenAI", var_name="OPENAI_API_KEY", model_name="gpt-5.4
 
 def callProvider(provider_name: str, content: str, max_tokens: int = 6000) -> str:
     """Generic dispatcher for MeTTa."""
-    from src.media_handler import get_and_clear_pending_media
+    from src.media_handler import get_pending_media, get_pending_context
     provider = _get_provider(provider_name)
     if not provider or not provider.is_available:
         raise RuntimeError(f"Provider '{provider_name}' not available")
-    media = get_and_clear_pending_media()
+    media = get_pending_media()
+    context = get_pending_context()
+    if context:
+        content = content + "\n\n[ATTACHED DOCUMENT CONTENT]\n" + context
     return provider.chat(content=content, max_tokens=max_tokens, media=media)
 
 

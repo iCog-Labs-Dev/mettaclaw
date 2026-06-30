@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _pending_media = None
+_pending_context = None
 
 
 def set_pending_media(media):
@@ -14,12 +15,28 @@ def set_pending_media(media):
         _pending_media = media
 
 
-def get_and_clear_pending_media():
-    global _pending_media
+def get_pending_media():
     with _lock:
-        media = _pending_media
+        return _pending_media
+
+
+def set_pending_context(text):
+    global _pending_context
+    with _lock:
+        _pending_context = text
+
+
+def get_pending_context():
+    with _lock:
+        return _pending_context
+
+
+def clear_pending():
+    """Drop both out-of-band slots once the agent has replied to the user."""
+    global _pending_media, _pending_context
+    with _lock:
         _pending_media = None
-        return media
+        _pending_context = None
 
 
 def extract_pdf_text(file_bytes, filename, max_chars=20000):
@@ -33,6 +50,7 @@ def extract_pdf_text(file_bytes, filename, max_chars=20000):
         text = "\n".join(pages)
         if len(text) > max_chars:
             text = text[:max_chars] + "\n[truncated]"
+        logger.info(f"Extracted text from {filename}: {len(text)}")
         return f"[PDF: {filename}]\n{text}"
     except Exception as e:
         logger.error(f"PDF extraction failed for {filename}: {e}")
