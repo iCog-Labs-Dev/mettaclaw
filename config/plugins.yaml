@@ -33,9 +33,9 @@
   #loader: python
   #location: "{REPO}/channels"
 
-#- name: openaiapi
-  #loader: python
-  #location: "{REPO}/providers"
+- name: openaiapi
+  loader: python
+  location: "{REPO}/providers"
 
 #- name: asione
   #loader: python

@@ -4,7 +4,7 @@
 !(import! &self (library lib_combinatorics))
 !(import! &self (library OmegaClaw-Core lib_nal))
 !(import! &self (library OmegaClaw-Core lib_pln))
-!(import! &self (library OmegaClaw-Core lib_llm_ext.py))
+!(import! &self (library OmegaClaw-Core ./providers/lib_llm_ext.py))
 !(import! &self (library OmegaClaw-Core ./src/logger.py))
 !(import! &self (library OmegaClaw-Core ./src/log))
 !(import! &self (library OmegaClaw-Core ./src/utils))

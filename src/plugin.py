@@ -8,6 +8,7 @@ import sys
 _REPO = pathlib.Path(__file__).parent.parent.resolve()
 _plugins = {}
 _commchannel: pluginapi.CommChannel = None
+_llmprovider: pluginapi.LLMProvider = None
 
 def error(func, text):
     error = f"{func}: {text}"
@@ -97,3 +98,14 @@ def commChannelReceive():
 def commChannelSend(message):
     global _commchannel
     _commchannel.send(message)
+
+def llmProviderConfig(provider, config):
+    global _llmprovider
+    _llmprovider = pluginapi._llmProviderRegistry.get(provider, None)
+    if _llmprovider is None:
+        error("llmProviderConfig", f"LLM provider plugin {provider} is not registered")
+    _llmprovider.config(config)
+
+def llmProviderChat(prompt, max_tokens, reasoning_mode):
+    global _llmprovider
+    return _llmprovider.chat(prompt, max_tokens, reasoning_mode)

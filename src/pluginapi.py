@@ -29,7 +29,7 @@ class LLMProvider:
     def chat(self, prompt: str, max_tokens: int = 6000, reasoning_mode: str = "medium") -> str:
         raise NotImplementedError()
 
-def registerLlmProvider(id: str, provider: LLMProvider) -> None:
+def registerLLMProvider(id: str, provider: LLMProvider) -> None:
     global _llmProviderRegistry
-    print(f"registerLlmProvider: registering LLM provider {id}")
+    print(f"registerLLMProvider: registering LLM provider {id}")
     _llmProviderRegistry[id] = provider
