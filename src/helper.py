@@ -26,6 +26,13 @@ def make_id(prefix="id"):
     stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
     return f"{prefix}-{stamp}"
 
+def cfv2_make_id(prefix="id"):
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{prefix}-{stamp}"
+
+def cfv2_compact_plain(value, limit=1200):
+    return compact_plain(value, limit)
+
 def extract_timestamp(line):
     m = TS_RE.search(line)
     if not m:
@@ -136,6 +143,42 @@ def normalize_string(x):
         return str(x).encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
     except Exception:
         return str(x)
+
+
+# Fence tags that indicate non-Python content — skip these blocks entirely
+_NON_PYTHON_FENCE_TAGS = {"text", "bash", "sh", "shell", "output", "plaintext", "console", "log", "json", "yaml", "xml", "html", "css", "markdown", "md"}
+
+def strip_code_fences(code: str) -> str:
+    """Extract and concatenate content from Python code fences only.
+    Fences tagged as non-Python (```text, ```bash, etc.) are skipped.
+    Discards surrounding prose. If no Python fences found, returns original stripped.
+    Multiple Python fences (e.g. function def + runner) are joined with a newline.
+    """
+    code = code.strip()
+    lines = code.splitlines()
+    blocks = []
+    inner = None
+    skip_block = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if inner is None:
+                # Opening fence — check the tag
+                tag = stripped[3:].strip().lower().split()[0] if stripped[3:].strip() else ""
+                skip_block = tag in _NON_PYTHON_FENCE_TAGS
+                if not skip_block:
+                    inner = []
+            else:
+                # Closing fence
+                if not skip_block and inner is not None:
+                    blocks.append("\n".join(inner).strip())
+                inner = None
+                skip_block = False
+        elif inner is not None and not skip_block:
+            inner.append(line)
+    if not blocks:
+        return code
+    return "\n\n".join(b for b in blocks if b)
 
 # ---- HyperClaw Context Frames V2 helper additions ----
 

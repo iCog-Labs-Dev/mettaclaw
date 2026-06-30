@@ -17,7 +17,7 @@
           (configure spamShield True)
           (configure sleepInterval 1)
           (configure LLM gpt-5.4)
-          (configure provider OpenAI) ;Anthropic or OpenAI or ASICloud or ASIOne
+          (configure provider Anthropic) ;Anthropic or OpenAI or ASICloud or ASIOne
           (configure maxOutputToken 6000)
           (configure reasoningMode medium)
           (configure wakeupInterval 600) ;600=10 minutes
@@ -25,6 +25,8 @@
           (change-state! &lastresults "")
           (change-state! &loops (maxNewInputLoops))
           (configure useFrames True)
+          (py-call (lib_llm_ext.setActiveProvider (provider) (LLM)))
+          (py-call (lib_llm_ext.setJudgeProvider "OpenAI"))
           ))
 
 
@@ -35,6 +37,7 @@
           "CURRENT_CONTEXT_FRAME_S_EXPR: " (contextFrameForPrompt) (newline)
           "SKILL_SET: " (getSkills) (newline)
           "CONTEXT_FRAME_SKILLS: " (contextFramesSkills) (newline)
+          "DIRECTIVE_MODULES: " (getDirectiveModules) (newline)
           "OUTPUT_FORMAT: Up to 5 skill command lines, do not wrap quotes around args, do not use variables:" (newline)
           "toolName1 arg1" (newline)
           "toolName2 arg2" (newline)
@@ -78,7 +81,8 @@
              (initLoop)
              (initMemory)
              (initChannels)
-             (if (== (useFrames) True) (initContextFrame) _))
+             (if (== (useFrames) True) (initContextFrame) _)
+             (initAttentionDirectives))
           (change-state! &loops (- (get-state &loops) 1)))
 
       (println! (---------iteration $k))
@@ -95,7 +99,9 @@
 
              ; New input becomes frame state before prompting.
              ($_ (if (and $msgnew (== (useFrames) True))
-                    (ctx-ingest-user-message $msg)
+                    (progn
+                       (ctx-ingest-user-message $msg)
+                       (cfv2-load-frame (get-state &cfv2-last-admitted-frame-id)))
                     _))
               
             ($_ (if (and (== (useFrames) True) (not (ctx-has-active-goals)))

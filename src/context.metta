@@ -471,7 +471,7 @@
              (hypotheses ())
              (method (cfv2-default-method))
              (history-summary (cfv2-compact-limited $description (cfv2HistorySummaryLimit)))
-             (modules (getFrameSkillsCompact))
+             (modules (cfv2-default-modules))
              (budget (cfv2-default-budget))
              (constraints ())
              (deliverables ($deliverables))
@@ -651,12 +651,27 @@
             (repr (cfv2-frame-refs-by-status Active))
             (repr (get-state &cfv2-root-mode))))
       (if (== $nextID NON)
+          (if (== (get-state &cfv2-root-mode) Fast)
+              (progn
+                 (change-state! &cfv2-root-mode Slow)
+                 (let $nextSlowID
+                    (py-call
+                       (helper.cfv2_select_next_frame_id
+                          (repr (cfv2-frame-refs-by-status Active))
+                          (repr (get-state &cfv2-root-mode))))
+                    (if (== $nextSlowID NON)
+                        (progn
+                           (cfv2-clear-current-frame-cache)
+                           (NO-ACTIVE-FRAME-FOR-ROOT-MODE))
+                        (progn
+                           (println! (TYRING TO PRINT:  $nextSlowID))
+                           (cfv2-load-frame $nextSlowID)))))
+              (progn
+                 (cfv2-clear-current-frame-cache)
+                 (NO-ACTIVE-FRAME-FOR-ROOT-MODE)))
           (progn
-             (cfv2-clear-current-frame-cache)
-             (NO-ACTIVE-FRAME-FOR-ROOT-MODE))
-            (progn (println! (TYRING TO PRINT:  $nextID))
-          (cfv2-load-frame $nextID))
-          )))
+             (println! (TYRING TO PRINT:  $nextID))
+             (cfv2-load-frame $nextID)))))
 
 (= (cfv2-check-ref-status (FrameRef $frameID $parentFrameID $space 
                 $source $priority (status $currentStatus) $frameMode 
@@ -763,9 +778,13 @@
 ;; TODO: implement compact frame retrival
 (= (cfv2-maintain-frame)
    (if (cfv2-has-current-frame)
-       (progn
-          (cfv2-touch-current-frame)
-          (cfv2-current-frame))
+       (if (and (== (get-state &cfv2-root-mode) Fast)
+               (== (get-state &cfv2-current-frame-mode) Slow))
+           ;; Root switched to Fast but current frame is Slow — yield to Fast frames
+           (cfv2-select-next-frame)
+           (progn
+              (cfv2-touch-current-frame)
+              (cfv2-current-frame)))
        (cfv2-select-next-frame)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -779,7 +798,10 @@
    (cfv2-create-autonomous-frame $description 0.5 Slow))
 
 (= (switch-frame $frameID)
-   (cfv2-load-frame $frameID))
+   (let $_ (cfv2-load-frame $frameID)
+      (if (cfv2-has-current-frame)
+          (cfv2-current-frame)
+          (SWITCH-FRAME-FAILED $frameID))))
 
 (= (show-root-frame)
    (cfv2-root-frame))
