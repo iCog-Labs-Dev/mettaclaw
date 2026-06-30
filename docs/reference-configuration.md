@@ -38,10 +38,10 @@ This reads a command-line override via `argk` (`name=value` on the MeTTa command
 | Parameter | Default | Meaning |
 |---|---|---|
 | `commchannel` | `irc` | Active channel — `irc`, `telegram`, `slack`, `mattermost`, or `websocket`. |
-| `IRC_channel` | `##omegaclaw` | IRC channel to join. |
-| `IRC_server` | `irc.quakenet.org` | IRC server hostname. |
-| `IRC_port` | 6667 | IRC port. |
-| `IRC_user` | `omegaclaw` | IRC nickname. |
+| `irc_channel` | `##omegaclaw` | IRC channel to join. |
+| `irc_server` | `irc.quakenet.org` | IRC server hostname. |
+| `irc_port` | 6667 | IRC port. |
+| `irc_user` | `omegaclaw` | IRC nickname. |
 | `TG_CHAT_ID` | *(empty — auto-bind supported)* | Optional fixed Telegram chat ID. Leave empty to auto-bind on first valid inbound auth/message. |
 | `TG_POLL_TIMEOUT` | 20 | Telegram long-poll timeout in seconds. |
 | `SL_CHANNEL_ID` | *(empty — auto-bind supported)* | Optional Slack channel ID where OmegaClaw reads/writes messages. Leave empty to auto-bind on first valid inbound auth/message. |

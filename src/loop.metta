@@ -59,6 +59,7 @@
                                (applySecurityPolicy)
                                (initMemory)
                                (initKnowledge)
+                               (initPlugins)
                                (initChannels))
                         (change-state! &loops (- (get-state &loops) 1)))
           (let $prompt (getContext)

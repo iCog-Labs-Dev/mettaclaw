@@ -111,7 +111,7 @@ def _choose_channel():
                     continue
                 return {
                     "commchannel": "irc",
-                    "IRC_channel": channel,
+                    "irc_channel": channel,
                 }
 
         if c == "2":
@@ -376,10 +376,10 @@ cat <<EOF
 
 Please go to https://webchat.quakenet.org/ or any IRC client.
 Then, enter a unique username and this channel:
-  $IRC_channel
+  $irc_channel
 
 Authentication step (required):
-  Once in the $IRC_channel channel, send this one-time secret exactly once:
+  Once in the $irc_channel channel, send this one-time secret exactly once:
   auth ${OMEGACLAW_AUTH_SECRET}
   The first nickname that sends it becomes the only accepted user.
   Messages from all other users will be silently ignored.
@@ -483,7 +483,8 @@ options() {
     provider=ASICloud
     llm_server_local_url="http://localhost:11434"
     image=singularitynet/omegaclaw:latest
-    IRC_channel="${IRC_channel:-##omegaclaw}"
+    commchannel=irc
+    irc_channel="${irc_channel:-##omegaclaw}"
     TG_BOT_TOKEN="${TG_BOT_TOKEN:-}"
     TG_POLL_TIMEOUT="${TG_POLL_TIMEOUT:-20}"
     SL_BOT_TOKEN="${SL_BOT_TOKEN:-}"
@@ -509,7 +510,7 @@ options() {
             t) commchannel=${OPTARG};;
             p) provider=${OPTARG};;
             u) llm_server_local_url=${OPTARG};;
-            c) IRC_channel=${OPTARG};;
+            c) irc_channel=${OPTARG};;
             d) image=${OPTARG};;
             l) log_config_path=${OPTARG};;
             *) help
@@ -608,7 +609,7 @@ start() {
     fi
 
     if [ "${commchannel}" = "irc" ]; then
-      docker_cmd+=("IRC_channel=${IRC_channel}")
+      docker_cmd+=("irc_channel=${irc_channel}")
     elif [ "${commchannel}" = "telegram" ]; then
       docker_cmd+=("TG_POLL_TIMEOUT=${TG_POLL_TIMEOUT}")
     elif [ "${commchannel}" = "slack" ]; then

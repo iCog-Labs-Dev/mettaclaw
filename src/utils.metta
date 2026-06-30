@@ -67,3 +67,16 @@
         (if (== $res ())
             $default
             (car-atom $res))))
+
+(= (subconfig $plugin)
+   (collapse (_subconfig $plugin)))
+
+(= (_subconfig $plugin)
+   (let*
+     (($prefix (string_concat $plugin "_"))
+      ($arg (argv $_)))
+     (progn
+       (translatePredicate (atom_string $arg $args))
+       (translatePredicate (sub_string $args 0 $prefixlen $after $prefix))
+       (translatePredicate (sub_string $args $prefixlen $after 0 $subarg))
+       $subarg)))

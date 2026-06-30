@@ -6,9 +6,9 @@ import time
 import textwrap
 import auth
 from src.logger import get_logger
+import pluginapi as plugin
 
 logger = get_logger(__name__)
-
 
 _running = False
 _sock = None
@@ -164,4 +164,25 @@ def send_message(text):
             if _connected and _channel:
                  _send(f"PRIVMSG {_channel} :{chunk}")
         except Exception as e:
-            logger.exception(f"error in send_message on channel {_channel}: {e}")
+            logger.exception(f"[IRC] error in send_message on channel {_channel}: {e}")
+
+class IRCChannel(plugin.CommChannel):
+
+    def __init__(self):
+        super().__init__()
+
+    def config(self, config: dict) -> None:
+        channel = config.get("channel", "##omegaclaw")
+        server = config.get("server", "irc.quakenet.org")
+        port = int(config.get("port", 6667))
+        user = config.get("user", "omegaclaw")
+        start_irc(channel, server, port, user)
+
+    def receive(self) -> str:
+        return getLastMessage()
+
+    def send(self, message: str) -> None:
+        send_message(message)
+
+def loadOmegaClawPlugin():
+    plugin.registerCommChannel("irc", IRCChannel())
