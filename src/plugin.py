@@ -1,3 +1,9 @@
+"""
+This is OmegaClaw internal API which is built on the top of the plugins API.
+Most of the functions here calls corresponding functions of the registered
+plugins.
+"""
+
 import pathlib
 import yaml
 import importlib
@@ -10,12 +16,18 @@ _plugins = {}
 _commchannel: pluginapi.CommChannel = None
 _llmprovider: pluginapi.LLMProvider = None
 
-def error(func, text):
+def _error(func, text):
     error = f"{func}: {text}"
     print(error)
     raise RuntimeError(error)
 
 def initPlugins():
+    """Loads the list of the plugins from ./config/plugins.yaml file and then
+    loads each plugin from the list using the specified loader. YAML file
+    contains the list of plugins each specified by three fields:
+    - name - required, must be unique
+    - loader - required, must be either "python" or "metta"
+    - location - optional, path to the plugin module used by Python loader"""
     global _plugins, _REPO
 
     plugins_path = _REPO.joinpath("./config/plugins.yaml")
@@ -26,31 +38,38 @@ def initPlugins():
 
         name = p.get("name")
         if name is None:
-            error("initPlugins", f"name field is empty, file: {plugins_path}, index: {i}")
+            _error("initPlugins", f"name field is empty, file: {plugins_path}, index: {i}")
         if name in _plugins:
-            error("initPlugins", f"name '{name}' is not unique")
+            _error("initPlugins", f"name '{name}' is not unique")
 
         loader = p.get("loader", "metta")
         if loader == "python":
-            initPythonPlugin(p)
+            _initPythonPlugin(p)
         elif loader == "metta":
-            initMettaPlugin(p)
+            _initMettaPlugin(p)
         else:
-            error("initPlugins", f"loader '{loader}' is not implemented")
+            _error("initPlugins", f"loader '{loader}' is not implemented")
 
 class PythonPlugin:
+    """Class to wrap the reference to the Python module and keep it inside
+    plugins registry"""
 
     def __init__(self, mod):
         self.mod = mod
 
-def initPythonPlugin(plugin):
+def _initPythonPlugin(plugin):
+    """Python plugin loader implementation. If location of the plugin is
+    specified it imports "<location>/<name>.py" file. Imports <name> Python
+    module otherwise. Calls "loadOmegaClawPlugin" function from the imported
+    module. This is the point where plugin's code gets control and should
+    register appropriate callbacks."""
     global _plugins, _REPO
 
     name = plugin.get("name")
     location = plugin.get("location")
     mod = None
     if location is None:
-        print(f"initPythonPlugin: loading {name} plugin from PYTHONPATH using Python module loader")
+        print(f"_initPythonPlugin: loading {name} plugin from PYTHONPATH using Python module loader")
         mod = importlib.import_module(name)
     else:
         location = pathlib.Path(location.format(REPO=_REPO)).resolve()
@@ -66,17 +85,18 @@ def initPythonPlugin(plugin):
     if mod is not None:
         _plugins[name] = PythonPlugin(mod)
     else:
-        error("initPythonPlugin", f"Couldn't find Python module {name}")
+        _error("_initPythonPlugin", f"Couldn't find Python module {name}")
 
     if not hasattr(mod, "loadOmegaClawPlugin"):
-        error("initPythonPlugin", f"No loadOmegaClawPlugin() function is implemented by plugin {name}")
+        _error("_initPythonPlugin", f"No loadOmegaClawPlugin() function is implemented by plugin {name}")
     plugin_loader = getattr(mod, "loadOmegaClawPlugin")
     plugin_loader()
 
-def initMettaPlugin(plugin):
+def _initMettaPlugin(plugin):
     raise NotImplementedError()
 
 def listToDict(list):
+    """Converts list of <key>=<value> pairs into Python dictionary"""
     print(f"listToDict: list {list}")
     dict = {}
     list = [s.split("=", 1) for s in list]
@@ -85,27 +105,33 @@ def listToDict(list):
     return dict
 
 def commChannelConfig(commchannel, config):
+    """Select and configure one of the communication channels registered by
+    plugins"""
     global _commchannel
     _commchannel = pluginapi._commChannelRegistry.get(commchannel, None)
     if _commchannel is None:
-        error("commChannelConfig", f"Communication channel plugin {commchannel} is not registered")
+        _error("commChannelConfig", f"Communication channel plugin {commchannel} is not registered")
     _commchannel.config(config)
 
 def commChannelReceive():
+    """Receive message from selected communication channel"""
     global _commchannel
     return _commchannel.receive()
 
 def commChannelSend(message):
+    """Send message via selected communication channel"""
     global _commchannel
     _commchannel.send(message)
 
 def llmProviderConfig(provider, config):
+    """Select and configure one of the LLM providers registered by plugins"""
     global _llmprovider
     _llmprovider = pluginapi._llmProviderRegistry.get(provider, None)
     if _llmprovider is None:
-        error("llmProviderConfig", f"LLM provider plugin {provider} is not registered")
+        _error("llmProviderConfig", f"LLM provider plugin {provider} is not registered")
     _llmprovider.config(config)
 
 def llmProviderChat(prompt, max_tokens, reasoning_mode):
+    """Chat via selected LLM provider"""
     global _llmprovider
     return _llmprovider.chat(prompt, max_tokens, reasoning_mode)

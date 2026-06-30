@@ -1,3 +1,5 @@
+; This file is MeTTa trampoline to the plugin.py file
+
 !(import! &self (library OmegaClaw-Core ./src/plugin.py))
 
 (= (initPlugins)
