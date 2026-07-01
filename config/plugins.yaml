@@ -36,17 +36,17 @@
   loader: python
   location: "{REPO}/providers"
 
-#- name: asione
-  #loader: python
-  #location: "{REPO}/providers"
+- name: asione
+  loader: python
+  location: "{REPO}/providers"
 
-#- name: openrouter
-  #loader: python
-  #location: "{REPO}/providers"
+- name: openrouter
+  loader: python
+  location: "{REPO}/providers"
 
-#- name: openai
-  #loader: python
-  #location: "{REPO}/providers"
+- name: openai
+  loader: python
+  location: "{REPO}/providers"
 
 #- name: mockprovider
   #loader: python
