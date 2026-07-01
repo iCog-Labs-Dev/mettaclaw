@@ -48,6 +48,6 @@
   loader: python
   location: "{REPO}/providers"
 
-#- name: mockprovider
-  #loader: python
-  #location: "{REPO}/providers"
+- name: mockprovider
+  loader: python
+  location: "{REPO}/providers"

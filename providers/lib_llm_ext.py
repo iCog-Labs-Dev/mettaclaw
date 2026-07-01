@@ -145,55 +145,6 @@ class AIProvider(AbstractAIProvider):
                     .replace("</tool_call>", " ").replace("<arg_value>", " ").replace("<tool_call>", " ")
 
 
-class TestProvider(AbstractAIProvider):
-    """Test provider for mocking LLM output"""
-
-    def __init__(self):
-        super().__init__("Test")
-        self._mock = None
-        self._controller_ip = os.environ.get("TEST_SERVER_IP")
-
-    def _llm_mock(self):
-        if not self._mock:
-            from Autotests.mock.llm import LlmMockAgent, LLM_MOCK_PORT
-            self._mock = LlmMockAgent((self._controller_ip, LLM_MOCK_PORT))
-        return self._mock
-
-    @property
-    def is_available(self) -> bool:
-        return self._controller_ip is not None
-
-    def chat(self, content: str, max_tokens: int = 6000, reasoning: str = "medium", **kwargs) -> str:
-        return self._llm_mock().chat(content)
-
-# Provider registry - lazy, no initialization yet
-_provider_registry = {}
-
-
-def _register_provider(name: str, var_name: str, model_name: str, base_url: str):
-    """Register a provider configuration (no instantiation yet)."""
-    _register_provider_instance(AIProvider(name, var_name, model_name, base_url))
-
-def _register_provider_instance(provider: AbstractAIProvider):
-    """Register a pre-initialized provider configuration (no instantiation yet)."""
-    _provider_registry[provider.name] = provider
-
-def _get_provider(name: str) -> Optional[AIProvider]:
-    """Get or create provider instance on demand."""
-    return _provider_registry.get(name)
-
-
-# Register all providers (cheap - just stores config)
-_register_provider_instance(TestProvider())
-
-
-def callProvider(provider_name: str, content: str, max_tokens: int = 6000, reasoning: str = "medium") -> str:
-    """Generic dispatcher for MeTTa."""
-    provider = _get_provider(provider_name)
-    if not provider or not provider.is_available:
-        raise RuntimeError(f"Provider '{provider_name}' not available")
-    return provider.chat(content=content, max_tokens=max_tokens, reasoning=reasoning)
-
 _embedding_model = None
 
 def initLocalEmbedding():
