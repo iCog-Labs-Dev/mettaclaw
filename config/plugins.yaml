@@ -24,9 +24,9 @@
   #loader: python
   #location: "{REPO}/channels"
 
-#- name: mattermost
-  #loader: python
-  #location: "{REPO}/channels"
+- name: mattermost
+  loader: python
+  location: "{REPO}/channels"
 
   ## FIXME: rename mock to mockchannel
 #- name: mockchannel
