@@ -3,16 +3,26 @@ set -euo pipefail
 
 cd /PeTTa
 
-su www-data -s /bin/sh -c "sh /opt/nginx/nginx.sh"
-
 GATEWAY_URL="http://localhost:8080"
 EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-Local}"
 
+export OPENAIAPI_URL="http://localhost:8080" # dummy value
+export MM_URL="http://localhost:8080" # dummy value
 for arg in "$@"; do
   if [[ "$arg" == embeddingprovider=* ]]; then
     export EMBEDDING_PROVIDER="${arg#*=}"
   fi
+  # URL to redirect OpenAIAPI provider requests
+  if [[ "$arg" == openaiapi_url=* ]]; then
+    export OPENAIAPI_URL="${arg#*=}"
+  fi
+  # URL to redirect Mattermost communication channel requests
+  if [[ "$arg" == MM_URL=* ]]; then
+    export MM_URL="${arg#*=}"
+  fi
 done
+
+su www-data -s /bin/sh -c "sh /opt/nginx/nginx.sh"
 
 # Optional knowledge-base import
 if [[ "${IMPORT_KB_ON_START}" == "1" ]]; then
@@ -23,7 +33,7 @@ fi
 SAFE_VARS="HOME USER PATH HOSTNAME TERM LANG LC_ALL \
   GATEWAY_URL PYTHONDONTWRITEBYTECODE PYTHONUNBUFFERED \
   HF_HOME SENTENCE_TRANSFORMERS_HOME HF_HUB_OFFLINE TRANSFORMERS_OFFLINE \
-  OMEGACLAW_DIR MEMORY_DIR LLM_SERVER_LOCAL_URL TEST_SERVER_IP"
+  OMEGACLAW_DIR MEMORY_DIR TEST_SERVER_IP"
 
 env_args=""
 for var in $SAFE_VARS; do

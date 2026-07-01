@@ -89,13 +89,6 @@ class AIProvider(AbstractAIProvider):
                     base_url=base_url,
                     )
         if self._var_name in os.environ:
-            if self._var_name == "OLLAMA_API_KEY":
-                llm_server_local_url = os.environ.get("LLM_SERVER_LOCAL_URL")
-                if llm_server_local_url:
-                    self._base_url = llm_server_local_url.rstrip("/") + "/v1"
-                elif not self._base_url.endswith("/v1"):
-                    self._base_url = self._base_url.rstrip("/") + "/v1"
-
             return openai.OpenAI(api_key=os.environ.get(self._var_name), base_url=self._base_url)
 
         return None
