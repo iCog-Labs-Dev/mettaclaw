@@ -21,6 +21,7 @@ telegram:
     text_only: false
     allow_files: true
     allow_media: true
+    allow_audio: true
     allow_admin_actions: false
     allow_new_outbound_chats: false
 

@@ -57,6 +57,24 @@ def extract_pdf_text(file_bytes, filename, max_chars=20000):
         return f"[PDF: {filename}]\n[Could not extract text: {e}]"
 
 
+def transcribe_audio(file_bytes, filename, model="whisper-1", max_bytes=25 * 1024 * 1024):
+    """Transcribe an audio/voice file to text via the OpenAI Whisper API.
+    Returns a marker-prefixed string for the PDF-style context slot, or an
+    error note (never raises) so the agent still gets a usable turn."""
+    try:
+        if len(file_bytes) > max_bytes:
+            return f"[AUDIO TRANSCRIPT: {filename}]\n[Audio too large to transcribe]"
+        import os, openai
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        resp = client.audio.transcriptions.create(model=model, file=(filename, file_bytes))
+        text = (resp.text or "").strip()
+        logger.info(f"Transcribed {filename}: {len(text)} chars")
+        return f"[AUDIO TRANSCRIPT: {filename}]\n{text}"
+    except Exception as e:
+        logger.error(f"Audio transcription failed for {filename}: {e}")
+        return f"[AUDIO TRANSCRIPT: {filename}]\n[Could not transcribe: {e}]"
+
+
 def image_to_data_uri(file_bytes, mime_type):
     encoded = base64.b64encode(file_bytes).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"

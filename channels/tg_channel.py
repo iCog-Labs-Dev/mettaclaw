@@ -552,6 +552,54 @@ class _TelegramChannel:
         with self.msg_lock:
             self._message_queue.append((chat_id, display_text, message.message_id, {"media": None, "context": pdf_text}))
 
+    async def _on_audio(self, message: types.Message):
+        """Handle voice notes and audio files — transcribe to text via Whisper."""
+        if message.chat.id in self._paused_chats:
+            return
+        if not self._is_chat_authorized(message):
+            return
+        if message.from_user:
+            if message.chat.type in ["group", "supergroup"]:
+                if message.from_user.is_bot and not self.allow_group_bots:
+                    return
+            if await self.is_user_muted(message.from_user):
+                return
+
+        caption = message.caption or ""
+
+        if not self.reply_constraints.get("allow_audio", False):
+            if self._should_bot_respond(message, caption):
+                await self._send_block_notice(message, "Audio messages are not enabled. Please send text instead.")
+            return
+
+        if not self._should_bot_respond(message, caption):
+            return
+
+        if caption and await is_category_blocked(caption):
+            logging.warning(f"Ethics pass rejected audio caption")
+            return
+
+        user = message.from_user
+        name = "unknown user" if user is None else (user.username or user.full_name or str(user.id))
+        name = f"@{name}" if user and name == user.username else name
+        chat_id = message.chat.id
+        media = message.voice or message.audio
+        filename = getattr(media, "file_name", None) or ("voice.ogg" if message.voice else "audio")
+
+        try:
+            buf = BytesIO()
+            await self.bot.download(media, destination=buf)
+            transcript = await asyncio.to_thread(media_handler.transcribe_audio, buf.getvalue(), filename)
+        except Exception as e:
+            logging.error(f"Failed to download/transcribe audio: {e}")
+            await self._send_block_notice(message, "Failed to process the audio. Please try again.")
+            return
+
+        user_request = f" — {caption}" if caption else " — please respond to this voice message"
+        display_text = f"{name}: [sent audio '{filename}']{user_request}"
+        with self.msg_lock:
+            self._message_queue.append((chat_id, display_text, message.message_id, {"media": None, "context": transcript}))
+
     async def _on_media_rejected(self, message: types.Message):
         if not self._is_chat_authorized(message):
             return
@@ -561,7 +609,7 @@ class _TelegramChannel:
             logging.info("Denied capability invoked: unsupported media type uploaded.")
             await self._send_block_notice(
                 message,
-                "I can process text, images, and PDF files. Audio, video, and other file types are not supported."
+                "I can process text, images, PDF files, and voice/audio messages. Video and other file types are not supported."
             )
 
     async def _runner(self, token):
@@ -601,8 +649,9 @@ class _TelegramChannel:
             self.dp.callback_query.register(self._on_callback_query)
             self.dp.message.register(self._on_document, F.document)
             self.dp.message.register(self._on_photo, F.photo)
+            self.dp.message.register(self._on_audio, F.voice | F.audio)
             self.dp.message.register(self._on_message, F.text)
-            self.dp.message.register(self._on_media_rejected, ~F.text & ~F.photo & ~F.document)
+            self.dp.message.register(self._on_media_rejected, ~F.text & ~F.photo & ~F.document & ~F.voice & ~F.audio)
 
             self.connected = True
             self._polling_task = asyncio.create_task(self.dp.start_polling(self.bot, skip_updates=True, handle_signals=False))
