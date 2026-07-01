@@ -245,14 +245,21 @@ def _choose_provider():
         ]
         provider, embeddingprovider, api_token_var = providers[provider_id]
 
-        openaiapi_url = "http://localhost:11434/v1"
+        model = ""
+        c = input(f"Enter LLM model (default depends on provider): ").strip()
+        if c != "":
+            model = c
+
+        openaiapi_url = ""
         if provider == "OpenAIAPI":
+
+            openaiapi_url = "http://localhost:11434/v1"
             c = input(f"Enter LLM API URL (default: {openaiapi_url}): ").strip()
             if c != "":
                 openaiapi_url = c
             print(f"LLM API URL is set to {openaiapi_url}")
 
-        return provider, embeddingprovider, api_token_var, openaiapi_url
+        return provider, embeddingprovider, api_token_var, model, openaiapi_url
 
 
 def _choose_import_kb():
@@ -298,7 +305,7 @@ def config_run_omegaclaw(config_output_path):
     require_license_acceptance()
 
     channel_config = _choose_channel()
-    provider, embeddingprovider, api_token_var, openaiapi_url = _choose_provider()
+    provider, embeddingprovider, api_token_var, model, openaiapi_url = _choose_provider()
     token = _prompt_llm_token()
     import_kb_on_start = _choose_import_kb()
 
@@ -308,6 +315,7 @@ def config_run_omegaclaw(config_output_path):
         _write_kv(f, "OMEGACLAW_AUTH_SECRET", "".join(secrets.choice(string.digits) for _ in range(6)))
         _write_kv(f, "provider", provider)
         _write_kv(f, "embeddingprovider", embeddingprovider)
+        _write_kv(f, "model", model)
         _write_kv(f, "openaiapi_url", openaiapi_url)
         _write_kv(f, "IMPORT_KB_ON_START", import_kb_on_start)
         for key, value in channel_config.items():
@@ -477,7 +485,6 @@ help() {
 options() {
     OMEGACLAW_AUTH_SECRET=0000
     provider=ASICloud
-    openaiapi_url="http://localhost:11434/v1"
     image=singularitynet/omegaclaw:latest
     commchannel=irc
     IRC_channel="${IRC_channel:-##omegaclaw}"
