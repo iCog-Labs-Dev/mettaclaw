@@ -28,10 +28,9 @@
   loader: python
   location: "{REPO}/channels"
 
-  ## FIXME: rename mock to mockchannel
-#- name: mockchannel
-  #loader: python
-  #location: "{REPO}/channels"
+- name: mockchannel
+  loader: python
+  location: "{REPO}/channels"
 
 - name: openaiapi
   loader: python
