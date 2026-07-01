@@ -209,16 +209,25 @@ _register_provider_instance(TestProvider())
 _register_provider(name="OpenAI", var_name="OPENAI_API_KEY", model_name="gpt-5.4", base_url="https://api.openai.com/v1")
 
 
+def get_pending_context_block() -> str:
+    """Format the pending document context for prompt injection, or '' if none.
+    Single source of the [ATTACHED DOCUMENT CONTENT] marker; called from
+    loop.metta when building $send so every provider path gets the document."""
+    from src.media_handler import get_pending_context
+    context = get_pending_context()
+    if not context:
+        return ""
+    return "\n\n[ATTACHED DOCUMENT CONTENT]\n" + context
+
+
 def callProvider(provider_name: str, content: str, max_tokens: int = 6000) -> str:
-    """Generic dispatcher for MeTTa."""
-    from src.media_handler import get_pending_media, get_pending_context
+    """Generic dispatcher for MeTTa. Document context is injected upstream in
+    loop.metta ($send); this only transports the prompt text + media."""
+    from src.media_handler import get_pending_media
     provider = _get_provider(provider_name)
     if not provider or not provider.is_available:
         raise RuntimeError(f"Provider '{provider_name}' not available")
     media = get_pending_media()
-    context = get_pending_context()
-    if context:
-        content = content + "\n\n[ATTACHED DOCUMENT CONTENT]\n" + context
     return provider.chat(content=content, max_tokens=max_tokens, media=media)
 
 
