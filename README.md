@@ -114,7 +114,7 @@ Before running the system you need to choose your LLM API provider and export th
 
 Run the system via the following command which ensures the system is started from the root folder of PeTTa:
 ```
-OMEGACLAW_AUTH_SECRET=<channel-secret> sh run.sh run.metta irc_channel="<irc-channel>"
+OMEGACLAW_AUTH_SECRET=<channel-secret> sh run.sh run.metta IRC_channel="<irc-channel>"
 ```
 After start go to https://webchat.quakenet.org/ to communicate with the agent. Join `<irc-channel>` and after agent is joined send `auth <channel-secret>` message to authenticate yourself as an agent owner. Please replace `<irc-channel>` and `<channel-secret>` by your own values.
 
@@ -163,10 +163,10 @@ If you want to skip preloading the knowledge then run `export IMPORT_KB_ON_START
 | Parameter | Default | Meaning |
 |---|---|---|
 | `commchannel` | `irc` | Type of the communication channel for agent to use - `irc`, `telegram`, `mattermost`, `slack` or `websocket` |
-| `irc_channel` | `##omegaclaw` | IRC channel to join |
-| `irc_server` | `irc.quakenet.org` | IRC server hostname |
-| `irc_port` | 6667 | IRC port |
-| `irc_user` | `omegaclaw` | IRC nickname |
+| `IRC_channel` | `##omegaclaw` | IRC channel to join |
+| `IRC_server` | `irc.quakenet.org` | IRC server hostname |
+| `IRC_port` | 6667 | IRC port |
+| `IRC_user` | `omegaclaw` | IRC nickname |
 | `TG_CHAT_ID` |  | Optional Telegram chat ID. If empty, OmegaClaw auto-binds after first valid inbound auth/message. |
 | `TG_POLL_TIMEOUT` | 20 | Telegram polling timeout in seconds. |
 | `SL_CHANNEL_ID` |  | Optional Slack channel ID (for example `C0123456789`). If empty, OmegaClaw auto-binds on first successful auth message. |

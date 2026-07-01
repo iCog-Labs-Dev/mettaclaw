@@ -6,7 +6,7 @@
    (py-call (plugin.initPlugins)))
 
 (= (commChannelConfig $commchannel)
-   (py-call (plugin.commChannelConfig $commchannel (py-call (plugin.listToDict (subconfig $commchannel))))))
+   (py-call (plugin.commChannelConfig $commchannel (py-call (plugin.commandLineToDict (command-line))))))
 
 (= (commChannelReceive)
    (py-call (plugin.commChannelReceive)))
@@ -15,7 +15,7 @@
    (py-call (plugin.commChannelSend $message)))
 
 (= (llmProviderConfig $provider)
-   (py-call (plugin.llmProviderConfig $provider (py-call (plugin.listToDict (subconfig $provider))))))
+   (py-call (plugin.llmProviderConfig $provider (py-call (plugin.commandLineToDict (command-line))))))
 
 (= (llmProviderChat $prompt $max_tokens $reasoning_mode)
    (py-call (plugin.llmProviderChat $prompt $max_tokens $reasoning_mode)))

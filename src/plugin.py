@@ -95,13 +95,13 @@ def _initPythonPlugin(plugin):
 def _initMettaPlugin(plugin):
     raise NotImplementedError()
 
-def listToDict(list):
+def commandLineToDict(list):
     """Converts list of <key>=<value> pairs into Python dictionary"""
-    print(f"listToDict: list {list}")
     dict = {}
-    list = [s.split("=", 1) for s in list]
-    for k, v in list:
-        dict[k] = v
+    for arg in list:
+        kv = arg.split("=", 1)
+        if len(kv) == 2:
+            dict[kv[0]] = kv[1]
     return dict
 
 def commChannelConfig(commchannel, config):

@@ -172,10 +172,10 @@ class IRCChannel(plugin.CommChannel):
         super().__init__()
 
     def config(self, config: dict) -> None:
-        channel = config.get("channel", "##omegaclaw")
-        server = config.get("server", "irc.quakenet.org")
-        port = int(config.get("port", 6667))
-        user = config.get("user", "omegaclaw")
+        channel = config.get("IRC_channel", "##omegaclaw")
+        server = config.get("IRC_server", "irc.quakenet.org")
+        port = int(config.get("IRC_port", 6667))
+        user = config.get("IRC_user", "omegaclaw")
         start_irc(channel, server, port, user)
 
     def receive(self) -> str:
