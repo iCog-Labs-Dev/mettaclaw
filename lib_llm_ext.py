@@ -72,11 +72,16 @@ class AIProvider(AbstractAIProvider):
         else:
             user_content = content
 
+        # OpenAI's current models reject `max_tokens` on chat.completions and
+        # require `max_completion_tokens`; the OpenAI-compatible providers
+        # (Anthropic, ASICloud, Ollama) still expect `max_tokens`.
+        token_param = "max_completion_tokens" if "api.openai.com" in self._base_url else "max_tokens"
+
         try:
             response = self._client.chat.completions.create(
                 model=self._model_name,
                 messages=[{"role": "user", "content": user_content}],
-                max_tokens=max_tokens,
+                **{token_param: max_tokens},
                 **kwargs
             )
 
@@ -218,6 +223,15 @@ def get_pending_context_block() -> str:
     if not context:
         return ""
     return "\n\n[ATTACHED DOCUMENT CONTENT]\n" + context
+
+
+def pending_media_count() -> int:
+    """Number of pending out-of-band media blocks (0 if none). Called from
+    loop.metta to decide whether an OpenAI turn must go through callProvider
+    (vision-capable) instead of useGPT (text-only)."""
+    from src.media_handler import get_pending_media
+    media = get_pending_media()
+    return len(media) if media else 0
 
 
 def callProvider(provider_name: str, content: str, max_tokens: int = 6000) -> str:
