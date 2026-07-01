@@ -16,13 +16,13 @@
   loader: python
   location: "{REPO}/channels"
 
-#- name: telegram
-  #loader: python
-  #location: "{REPO}/channels"
+- name: telegram
+  loader: python
+  location: "{REPO}/channels"
 
-#- name: slack
-  #loader: python
-  #location: "{REPO}/channels"
+- name: slack
+  loader: python
+  location: "{REPO}/channels"
 
 - name: mattermost
   loader: python
