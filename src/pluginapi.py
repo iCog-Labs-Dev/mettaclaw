@@ -1,4 +1,3 @@
-# FIXME: rename this module to be unique for instance omegaclaw_plugin_api
 """
 OmegaClaw API which should be used to implement extensions.
 """
