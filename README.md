@@ -32,9 +32,14 @@ of approximately 200 lines of code.
 
 ## Installation
 
-Prerequisites: Git, Python3, Pip and [venv](https://docs.python.org/3/library/venv.html) library
+Prerequisites: Git, Python 3.10 or later including dev headers, Pip and [venv](https://docs.python.org/3/library/venv.html) library, C compiler (for building [janus-swi](https://pypi.org/project/janus-swi/) library)
 
-Get [SWI-Prolog 9.1.12 or later](https://www.swi-prolog.org/).
+Under Ubuntu one can use the following command to install prerequisites:
+```
+sudo apt-get install git python3 python3-dev python3-pip python3-venv build-essential
+```
+
+Get [SWI-Prolog 10.0.2 or later](https://www.swi-prolog.org/).
 
 Install OmegaClaw:
 ```
