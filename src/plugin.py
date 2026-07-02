@@ -96,12 +96,16 @@ def _initMettaPlugin(plugin):
     raise NotImplementedError()
 
 def commandLineToDict(list):
-    """Converts list of <key>=<value> pairs into Python dictionary"""
+    """Converts list of <key>=<value> pairs into Python dictionary. If
+    parameter doesn't include "=" it is added as a boolean value
+    <parameter>=True"""
     dict = {}
     for arg in list:
         kv = arg.split("=", 1)
         if len(kv) == 2:
             dict[kv[0]] = kv[1]
+        else:
+            dict[kv[0]] = True
     return dict
 
 def commChannelConfig(commchannel, config):
