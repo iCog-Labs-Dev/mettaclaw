@@ -2,8 +2,6 @@ import os
 import re
 import glob
 import hashlib
-import logging
-
 import chromadb
 import openai
 from   lib_llm_ext import initLocalEmbedding, useLocalEmbedding
