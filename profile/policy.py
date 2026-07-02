@@ -14,9 +14,9 @@ def apply_security_policy(path):
             policy.load_file(path)
             policy.apply()
         else:
-            logger.warning("securityPolicyPath is not set")
+            logger.warning("[policy.apply_security_policy]: securityPolicyPath is not set")
     except Exception as e:
-        logger.error(f"Unexpected exception applying security policy: {e}")
+        logger.error(f"[policy.apply_security_policy]: Unexpected exception: {e}")
         raise
 
 class LandLockCompatibility(enum.Enum):
@@ -42,7 +42,7 @@ class FileSystemPolicy:
         self._read_write = []
 
     def load_file(self, path: str|Path):
-        logger.info(f"Loading policy from file {path}")
+        logger.info(f"[FileSystemPolicy.load_file]: loading policy from file {path}")
         policy = None
         with open(path, "r") as f:
             policy = yaml.safe_load(f)
@@ -96,4 +96,4 @@ class FileSystemPolicy:
             .add_path_rule(*rof, access=FileSystemPolicy.READ_ONLY_FILE_ACCESS) \
             .apply()
 
-        logger.info("Policy applied")
+        logger.info("[FileSystemPolicy.load_file]: policy applied")
