@@ -478,6 +478,8 @@ class _TelegramChannel:
 
         if caption and await is_category_blocked(caption):
             logging.warning(f"Ethics pass rejected photo caption")
+            sender = message.from_user.username if message.from_user and message.from_user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [photo caption] {caption}")
             return
 
         user = message.from_user
@@ -488,7 +490,7 @@ class _TelegramChannel:
         try:
             buf = BytesIO()
             await self.bot.download(message.photo[-1], destination=buf)
-            image_bytes = buf.getvalue()
+            image_bytes = media_handler.sanitize_image(buf.getvalue())
             data_uri = media_handler.image_to_data_uri(image_bytes, "image/jpeg")
             pending_media = [{"type": "image_url", "image_url": {"url": data_uri}}]
         except Exception as e:
@@ -530,6 +532,8 @@ class _TelegramChannel:
 
         if caption and await is_category_blocked(caption):
             logging.warning(f"Ethics pass rejected document caption")
+            sender = message.from_user.username if message.from_user and message.from_user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [document caption] {caption}")
             return
 
         user = message.from_user
@@ -545,6 +549,12 @@ class _TelegramChannel:
         except Exception as e:
             logging.error(f"Failed to download/extract PDF: {e}")
             await self._send_block_notice(message, "Failed to process the PDF. Please try again.")
+            return
+
+        if await is_category_blocked(pdf_text):
+            logging.warning(f"Ethics pass rejected PDF content from '{filename}'")
+            sender = user.username if user and user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [PDF content blocked] {filename}")
             return
 
         user_request = f" — {caption}" if caption else " — please summarize this PDF"
@@ -577,6 +587,8 @@ class _TelegramChannel:
 
         if caption and await is_category_blocked(caption):
             logging.warning(f"Ethics pass rejected audio caption")
+            sender = message.from_user.username if message.from_user and message.from_user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [audio caption] {caption}")
             return
 
         user = message.from_user
@@ -593,6 +605,12 @@ class _TelegramChannel:
         except Exception as e:
             logging.error(f"Failed to download/transcribe audio: {e}")
             await self._send_block_notice(message, "Failed to process the audio. Please try again.")
+            return
+
+        if await is_category_blocked(transcript):
+            logging.warning(f"Ethics pass rejected audio transcript from '{filename}'")
+            sender = user.username if user and user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [audio transcript blocked] {filename}")
             return
 
         user_request = f" — {caption}" if caption else " — please respond to this voice message"

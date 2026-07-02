@@ -75,6 +75,21 @@ def transcribe_audio(file_bytes, filename, model="whisper-1", max_bytes=25 * 102
         return f"[AUDIO TRANSCRIPT: {filename}]\n[Could not transcribe: {e}]"
 
 
+def sanitize_image(file_bytes, max_dim=2048, quality=85):
+    """Re-encode an image via Pillow: strips EXIF/metadata and destroys most
+    LSB-embedded steganographic payloads. Raises on undecodable input so the
+    caller's existing error path rejects the file."""
+    from PIL import Image
+    from io import BytesIO
+    img = Image.open(BytesIO(file_bytes))
+    img = img.convert("RGB")
+    if max(img.size) > max_dim:
+        img.thumbnail((max_dim, max_dim))
+    out = BytesIO()
+    img.save(out, format="JPEG", quality=quality)
+    return out.getvalue()
+
+
 def image_to_data_uri(file_bytes, mime_type):
     encoded = base64.b64encode(file_bytes).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
