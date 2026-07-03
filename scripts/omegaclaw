@@ -198,17 +198,18 @@ def _choose_provider():
         print("Please select your LLM provider.")
         print("1) Anthropic/Claude 2) OpenAI/ChatGPT 3) ASI Cloud Minimax 4) ASI:One")
         print("5) Ollama-local (default: qwen3.5:9b) 6) OpenRouter/GLM 7) OpenRouter/MiniMaxM3")
-        c = input("Enter 1-7 or 'q' to exit (default: 1): ").strip()
+        print("8) AWS Bedrock (default: us.deepseek.r1-v1:0)")
+        c = input("Enter 1-8 or 'q' to exit (default: 1): ").strip()
 
         if c.lower() == "q":
             sys.exit(1)
 
         if not c:
             provider_id = 0
-        elif c in ["1", "2", "3", "4", "5", "6", "7"]:
+        elif c in ["1", "2", "3", "4", "5", "6", "7", "8"]:
             provider_id = int(c) - 1
         else:
-            print("Please enter 1-7 or 'q'", file=sys.stderr)
+            print("Please enter 1-8 or 'q'", file=sys.stderr)
             continue
 
         providers = [
@@ -218,7 +219,8 @@ def _choose_provider():
             ("ASIOne", "Local", "ASIONE_API_KEY"),
             ("Ollama-local", "Local", "OLLAMA_API_KEY"),
             ("OpenRouter", "Local", "OPENROUTER_API_KEY"),
-            ("MiniMaxM3", "Local", "OPENROUTER_API_KEY")
+            ("MiniMaxM3", "Local", "OPENROUTER_API_KEY"),
+            ("Bedrock", "Local", "AWS_REGION")
         ]
         provider, embeddingprovider, api_token_var = providers[provider_id]
 
@@ -476,6 +478,10 @@ options() {
         ASIOne)
             embeddingprovider="Local"
             api_token_var="ASIONE_API_KEY"
+            ;;
+        Bedrock)
+            embeddingprovider="Local"
+            api_token_var="AWS_REGION"
             ;;
         Ollama-local)
             embeddingprovider="Local"

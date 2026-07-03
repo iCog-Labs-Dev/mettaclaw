@@ -1,8 +1,15 @@
 import os, time, hashlib
+import re
 import openai
 from typing import Optional, Tuple, Dict, Any
 
 PROMPT_DELIMITER = ":-:-:-:"
+
+
+try:
+    import boto3
+except ImportError:
+    boto3 = None
 
 
 def _log_raw(provider: str, model: str, raw: str) -> None:
@@ -242,6 +249,53 @@ class AsiOneProvider(AIProvider):
             return ""
 
 
+class BedrockProvider(AIProvider):
+    """AWS Bedrock provider using boto3."""
+
+    def _create_client(self):
+        if boto3 is None:
+            return None
+
+        if self._var_name not in os.environ:
+            return None
+
+        return boto3.Session().client(self._base_url, region_name=os.environ.get(self._var_name))
+
+    @property
+    def is_available(self) -> bool:
+        return boto3 is not None and bool(os.environ.get(self._var_name))
+
+    def chat(self, content: str, max_tokens: int = 6000, reasoning: str = "medium", **kwargs) -> str:
+        self._ensure_client()
+
+        if self._client is None:
+            raise RuntimeError(f"{self.name} not configured (set {self._var_name})")
+
+        sysmsg, usermsg = _split_system_user(content)
+
+        try:
+            request = {
+                "modelId": self._model_name,
+                "messages": [{"role": "user", "content": [{"text": usermsg}]}],
+                "inferenceConfig": {"maxTokens": max_tokens},
+            }
+            request["system"] = [{"text": sysmsg}]
+
+            response = self._client.converse(**request)
+            content_blocks = response["output"]["message"]["content"]
+            raw = "".join(block.get("text", "") for block in content_blocks)
+            _log_raw(self._name, self._model_name, raw)
+            return self._clean_text(raw)
+        except Exception as e:
+            print(f"[lib_llm_ext.BedrockProvider.chat] Exception while communicating with LLM: {e}")
+            return ""
+
+    def _clean_text(self, text: str) -> str:
+        text = super()._clean_text(text)
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        return text.strip()
+
+
 class OpenAIProvider(AIProvider):
     """OpenAI provider using the Responses API (reasoning models)."""
 
@@ -339,6 +393,7 @@ _register_provider_instance(AsiOneProvider(name="ASIOne", var_name="ASIONE_API_K
 _register_provider_instance(OpenRouterProvider(name="OpenRouter", var_name="OPENROUTER_API_KEY", model_name="z-ai/glm-5.2", base_url="https://openrouter.ai/api/v1"))
 _register_provider_instance(OpenRouterProvider(name="MiniMaxM3", var_name="OPENROUTER_API_KEY", model_name="minimax/minimax-m3", base_url="https://openrouter.ai/api/v1"))
 _register_provider_instance(TestProvider())
+_register_provider_instance(BedrockProvider(name="Bedrock", var_name="AWS_REGION", model_name="us.deepseek.r1-v1:0", base_url="bedrock-runtime"))
 _register_provider_instance(OpenAIProvider(name="OpenAI", var_name="OPENAI_API_KEY", model_name="gpt-5.5", base_url="https://api.openai.com/v1"))
 
 
