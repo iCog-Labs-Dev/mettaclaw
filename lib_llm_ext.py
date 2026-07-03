@@ -1,6 +1,12 @@
 import os, time
+import re
 import openai
 from typing import Optional
+
+try:
+    import boto3
+except ImportError:
+    boto3 = None
 
 def _log_raw(provider: str, model: str, raw: str) -> None:
     ts = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
@@ -155,6 +161,58 @@ class AsiOneProvider(AIProvider):
             print(f"[lib_llm_ext.ASIOneProvider.chat] Exception while communicating with LLM: {e}")
             return ""
 
+class BedrockProvider(AbstractAIProvider):
+    """AWS Bedrock provider using boto3."""
+
+    def __init__(self, name: str, model_name: str = "us.deepseek.r1-v1:0", region_name: Optional[str] = None):
+        super().__init__(name)
+        self._model_name = model_name
+        self._region_name = region_name
+        self._client = None
+
+    def _ensure_client(self):
+        if self._client is None:
+            self._client = self._create_client()
+
+    def _clean_text(self, text: str) -> str:
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        return text.strip()
+
+    def _create_client(self):
+        if boto3 is None:
+            return None
+
+        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or self._region_name
+        if not region:
+            return None
+
+        session = boto3.Session()
+        return session.client("bedrock-runtime", region_name=region)
+
+    @property
+    def is_available(self) -> bool:
+        return boto3 is not None and bool(os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or self._region_name)
+
+    def chat(self, content: str, max_tokens: int = 6000, **kwargs) -> str:
+        self._ensure_client()
+        if self._client is None:
+            raise RuntimeError("Bedrock provider not configured.")
+
+        # Clean artifacts
+        content = content.replace("_quote_", '"').replace("_apostrophe_", "'")
+        
+        model_id = os.environ.get("AWS_BEDROCK_MODEL_ID", self._model_name)
+        try:
+            response = self._client.converse(
+                modelId=model_id,
+                messages=[{"role": "user", "content": [{"text": content}]}],
+                inferenceConfig={"maxTokens": max_tokens},
+            )
+            return self._clean_text(response["output"]["message"]["content"][0]["text"])
+        except Exception as e:
+            print(f"[lib_llm_ext.BedrockProvider.chat] Exception: {e}")
+            return ""
+
 
 class OpenAIProvider(AIProvider):
     """OpenAI provider using the Responses API (reasoning models)."""
@@ -237,6 +295,7 @@ _register_provider_instance(AsiOneProvider(name="ASIOne", var_name="ASIONE_API_K
 _register_provider_instance(OpenRouterProvider(name="OpenRouter", var_name="OPENROUTER_API_KEY", model_name="z-ai/glm-5.2", base_url="https://openrouter.ai/api/v1"))
 _register_provider_instance(OpenRouterProvider(name="MiniMaxM3", var_name="OPENROUTER_API_KEY", model_name="minimax/minimax-m3", base_url="https://openrouter.ai/api/v1"))
 _register_provider_instance(TestProvider())
+_register_provider_instance(BedrockProvider(name="Bedrock", model_name="us.deepseek.r1-v1:0"))
 _register_provider_instance(OpenAIProvider(name="OpenAI", var_name="OPENAI_API_KEY", model_name="gpt-5.5", base_url="https://api.openai.com/v1"))
 
 
