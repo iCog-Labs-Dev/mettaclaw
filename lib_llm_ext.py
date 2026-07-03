@@ -34,7 +34,9 @@ def _stable_cache_key(provider: str, model: str, sysmsg: str) -> str:
     Stable key for requests sharing the same system-prefix family.
     Do not include the user message here.
     """
-    digest = hashlib.sha256(sysmsg[:12000].encode("utf-8")).hexdigest()[:24]
+    marker = " LAST_SKILL_USE_RESULTS: "
+    stable = sysmsg.split(marker, 1)[0].strip()
+    digest = hashlib.sha256(stable.encode("utf-8")).hexdigest()[:24]
     return f"{provider.lower()}:{model}:{digest}"
 
 
@@ -130,7 +132,6 @@ class AIProvider(AbstractAIProvider):
             raw = response.choices[0].message.content or ""
             _log_raw(self._name, self._model_name, raw)
             resp = self._clean_text(raw)
-            resp = resp.replace("</arg_value>", " ").replace("</tool_call>", " ").replace("<arg_value>", " ").replace("<tool_call>", " ")
             return resp
         except Exception as e:
             print(f"[lib_llm_ext.AIProvider.chat] Exception while communicating with LLM: {e}")
@@ -138,7 +139,8 @@ class AIProvider(AbstractAIProvider):
 
     def _clean_text(self, text: str) -> str:
         """Unescape special characters."""
-        return text.replace("_quote_", '"').replace("_apostrophe_", "'")
+        return text.replace("_quote_", '"').replace("_apostrophe_", "'").replace("</arg_value>", " ") \
+                    .replace("</tool_call>", " ").replace("<arg_value>", " ").replace("<tool_call>", " ")
 
 class OpenRouterProvider(AIProvider):
     """OpenRouter provider with reasoning mode enabled (reasoning tokens excluded from the response)."""
@@ -158,13 +160,13 @@ class OpenRouterProvider(AIProvider):
 
         return None
     
-    def _openrouter_extra_body(self, content: str, reasoning: str) -> Dict[str, Any]:
+    def _openrouter_extra_body(self, content: str, max_tokens: int) -> Dict[str, Any]:
         sysmsg, _ = _split_system_user(content)
 
         body = {
             "reasoning": {
                 "enabled": True,
-                "max_tokens": 6000,
+                "max_tokens": max_tokens,
                 "exclude": True,
             }
         }
@@ -181,7 +183,6 @@ class OpenRouterProvider(AIProvider):
         model = self._model_name.lower()
 
         # OpenRouter supports top-level cache_control for Anthropic Claude routes.
-        # Do not add this to GLM unless OpenRouter documents GLM explicit caching.
         if model.startswith("anthropic/"):
             body["cache_control"] = {
                 "type": "ephemeral",
@@ -193,23 +194,15 @@ class OpenRouterProvider(AIProvider):
 
     def chat(self, content: str, max_tokens: int = 6000, reasoning: str = "medium", **kwargs) -> str:
         extra_body = _merge_dicts(
-            self._openrouter_extra_body(content, reasoning),
+            self._openrouter_extra_body(content, max_tokens),
             kwargs.pop("extra_body", None),
         )
-
-        extra_headers = kwargs.pop("extra_headers", None) or {}
-
-        # This is full-response caching for identical requests, not prompt-prefix caching.
-        # Useful for repeated identical calls, usually less useful for agent loops.
-        if os.environ.get("OPENROUTER_ENABLE_RESPONSE_CACHE", "").lower() in ("1", "true", "yes"):
-            extra_headers["X-OpenRouter-Cache"] = "true"
 
         return super().chat(
             content=content,
             max_tokens=max_tokens,
             reasoning=reasoning,
             extra_body=extra_body,
-            extra_headers=extra_headers,
             **kwargs,
         )
 
@@ -243,7 +236,6 @@ class AsiOneProvider(AIProvider):
             raw = response.choices[0].message.content
             _log_raw(self._name, self._model_name, raw)
             resp = self._clean_text(raw)
-            resp = resp.replace("</arg_value>", " ").replace("</tool_call>", " ").replace("<arg_value>", " ").replace("<tool_call>", " ")
             return resp
         except Exception as e:
             print(f"[lib_llm_ext.ASIOneProvider.chat] Exception while communicating with LLM: {e}")
@@ -264,30 +256,21 @@ class OpenAIProvider(AIProvider):
 
         try:
             create_kwargs = {
+                "instructions": sysmsg,
                 "model": self._model_name,
                 "input": usermsg,
                 "max_output_tokens": max_tokens,
                 "reasoning": {"effort": reasoning},
+                "prompt_cache_key": os.environ.get("OPENAI_PROMPT_CACHE_KEY", _stable_cache_key("openai", self._model_name, sysmsg)),
             }
-
-            if sysmsg:
-                create_kwargs["instructions"] = sysmsg
-
-                # Helps OpenAI route similar-prefix traffic for cache hits.
-                create_kwargs["prompt_cache_key"] = os.environ.get(
-                    "OPENAI_PROMPT_CACHE_KEY",
-                    _stable_cache_key("openai", self._model_name, sysmsg),
-                )
-
-                # GPT-5.5 supports only 24h; GPT-5.4 also supports extended retention.
-                if self._model_name.startswith(("gpt-5.5", "gpt-5.4")):
-                    create_kwargs["prompt_cache_retention"] = "24h"
+            # GPT-5.5 supports only 24h; GPT-5.4 also supports extended retention.
+            if self._model_name.startswith(("gpt-5.5", "gpt-5.4")):
+                create_kwargs["prompt_cache_retention"] = "24h"
 
             create_kwargs.update(kwargs)
 
             response = self._client.responses.create(**create_kwargs)
 
-            # Responses API usage shape can differ slightly from Chat Completions.
             usage = getattr(response, "usage", None)
             if usage:
                 input_tokens = getattr(usage, "input_tokens", None)
