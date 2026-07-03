@@ -98,7 +98,7 @@ def _initialize_offset():
     try:
         updates = _api_call("getUpdates", {"timeout": 0}, timeout=10) or []
     except Exception as exc:
-        logger.warning(f"[TELEGRAM] Could not read initial offset: {exc}")
+        logger.warning(f"Could not read initial offset: {exc}")
         return
 
     max_update = -1
@@ -143,7 +143,7 @@ def _is_allowed_message(chat_id, user_id, msg):
 
 def _poll_loop():
     global _connected, _offset
-    logger.info("[TELEGRAM] Polling started")
+    logger.info("Polling started")
 
     while _running:
         try:
@@ -185,11 +185,11 @@ def _poll_loop():
                     send_message(f"Authentication successful for {display_name}.")
         except Exception as exc:
             _connected = False
-            logger.warning(f"[TELEGRAM] Poll error: {exc}")
+            logger.warning(f"Poll error: {exc}")
             time.sleep(2)
 
     _connected = False
-    logger.info("[TELEGRAM] Polling stopped")
+    logger.info("Polling stopped")
 
 
 def start_telegram(chat_id="", poll_timeout=20):
@@ -215,7 +215,7 @@ def start_telegram(chat_id="", poll_timeout=20):
     _offset = None
     _running = True
     _connected = False
-    logger.info(f"[TELEGRAM] Starting adapter with chat target: {_chat_id or 'auto-bind'}")
+    logger.info(f"Starting adapter with chat target: {_chat_id or 'auto-bind'}")
     _initialize_offset()
 
     t = threading.Thread(target=_poll_loop, daemon=True)
@@ -252,5 +252,5 @@ def send_message(text):
                 use_post=True,
             )
         except Exception as exc:
-            logger.error(f"[TELEGRAM] Send failed: {exc}")
+            logger.error(f"Send failed: {exc}")
             return

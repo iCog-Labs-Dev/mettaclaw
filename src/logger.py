@@ -7,6 +7,13 @@ LOG_FILE = os.path.join(LOG_DIR, "omegaclaw.log")
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
+class ConcatFormatter(logging.Formatter):
+    def format(self, record):
+        if isinstance(record.msg, (list, tuple)):
+            record.msg = " ".join(map(str, record.msg))
+            record.args = ()
+        return super().format(record)
+
 def setup_logging():
     valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     level = LOG_LEVEL if LOG_LEVEL in valid_levels else "INFO"
@@ -18,7 +25,10 @@ def setup_logging():
     if any(isinstance(h, logging.handlers.TimedRotatingFileHandler) for h in root_logger.handlers):
         return
 
-    formatter = logging.Formatter(LOG_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+    formatter = ConcatFormatter(
+                LOG_FORMAT,
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
     root_logger.setLevel(level)
 
     if not any(type(h) is logging.StreamHandler for h in root_logger.handlers):

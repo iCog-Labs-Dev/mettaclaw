@@ -132,7 +132,7 @@ def _ws_loop():
         except websocket.WebSocketTimeoutException:
             continue
         except Exception as e:
-            logger.error(f"[MATTERMOST] WebSocket error: {e}")
+            logger.error(f"WebSocket error: {e}")
             break
 
     ws.close()
