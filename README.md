@@ -96,16 +96,25 @@ docker volume rm omegaclaw-memory
 
 ## Usage
 
-Before running the system you need to choose your LLM API provider and export the API key as the environment variable.
+Before running the system you need to choose your LLM API provider and configure its credentials. Most providers use one API-key environment variable; Bedrock uses the standard AWS SDK credential chain plus an AWS region.
 | Provider | Env var name | Notes |
 |---|---|---|
 | `Anthropic` (default) | `ANTHROPIC_API_KEY` | Claude models via the Anthropic API. |
 | `OpenAI` | `OPENAI_API_KEY` | GPT models. Also reused by the OpenAI embedding provider below. |
 | `ASICloud` | `ASI_API_KEY` |  MiniMax models via ASI Alliance inference endpoint (`inference.asicloud.cudos.org`). |
 | `ASIOne` | `ASIONE_API_KEY` |  ASI1 Ultra model via ASI:One inference endpoint (`https://api.asi1.ai/v1`). |
+| `Bedrock` | `AWS_REGION` or `AWS_DEFAULT_REGION` | AWS Bedrock via `boto3`. Uses AWS SDK credentials; override the default model with `AWS_BEDROCK_MODEL_ID` (default: `us.deepseek.r1-v1:0`). |
 | `Ollama-local` | `OLLAMA_API_KEY` |  Ollama model via local inference endpoint. API endpoint is set via `LLM_SERVER_LOCAL_URL` environment variables. |
 | `OpenRouter` | `OPENROUTER_API_KEY` |  GLM model via OpenRouter inference endpoint. |
 | `MiniMaxM3` | `OPENROUTER_API_KEY` |  MiniMax M3 model via OpenRouter inference endpoint. |
+
+For Bedrock, configure AWS credentials the same way you would for `boto3` and set a region:
+```
+export AWS_REGION=us-east-1
+export AWS_BEDROCK_MODEL_ID=us.deepseek.r1-v1:0
+./scripts/omegaclaw start -p Bedrock -t irc -c "##your-channel"
+```
+When running in Docker, the launcher forwards Bedrock region/model/profile settings. Prefer an IAM role or deployment-specific AWS credential mount rather than exposing static AWS secret keys to the agent process.
 
 Run the system via the following command which ensures the system is started from the root folder of PeTTa:
 ```
@@ -137,7 +146,7 @@ If you want to skip preloading the knowledge then run `export IMPORT_KB_ON_START
 | `maxWakeLoops` | 1 | Extra turns granted on each scheduled wake-up |
 | `sleepInterval` | 1 | Delay between loop iterations (seconds) |
 | `wakeupInterval` | 600 | How long idle before the next scheduled wake-up (seconds) |
-| `LLM` | `gpt-5.4` | Model identifier passed to the provider (used with OpenAI provider only) |
+| `LLM` | `gpt-5.4` | Model identifier passed to providers that read this parameter. Bedrock uses `AWS_BEDROCK_MODEL_ID`. |
 | `provider` | `Anthropic` | LLM provider, see the table of the providers above |
 | `maxOutputToken` | 6000 | Output cap passed to the provider |
 | `reasoningMode` | `medium` | Reasoning-effort hint passed to the provider (OpenAI only) |
