@@ -5,10 +5,12 @@ import logging
 import yaml
 import os
 import re
+from io import BytesIO
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from src.config_helper import is_category_blocked, get_spam_protection_config
+from src import media_handler
 
 
 log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
@@ -180,13 +182,19 @@ class _TelegramChannel:
         """Retrieve and consume the most recent processed window, thread-safe."""
         with self.msg_lock:
             if self._message_queue:
-                ready_chat_id, text, reply_id = self._message_queue.pop(0)
+                ready_chat_id, text, reply_id, payload = self._message_queue.pop(0)
 
                 if not self._is_allowed_chat(ready_chat_id) and ready_chat_id not in self.admin_ids:
                         return None
-                
+
                 self.chat_id = ready_chat_id
                 self._reply_to_id = reply_id
+                if isinstance(payload, dict):
+                    media_handler.set_pending_media(payload.get("media"))
+                    media_handler.set_pending_context(payload.get("context"))
+                else:
+                    media_handler.set_pending_media(payload)
+                    media_handler.set_pending_context(None)
                 self._start_typing(str(ready_chat_id))
                 return f"[{ready_chat_id}] [{reply_id}] {text}"
             return None
@@ -387,7 +395,7 @@ class _TelegramChannel:
                 return
         
         with self.msg_lock:
-            self._message_queue.append((chat_id, f"{name}: {text}", message.message_id))
+            self._message_queue.append((chat_id, f"{name}: {text}", message.message_id, None))
             
 
     async def is_user_muted(self, user: types.User):
@@ -433,29 +441,194 @@ class _TelegramChannel:
             
         return False
 
-    async def _on_media_rejected(self, message: types.Message):
-        if not self._is_chat_authorized(message):
-            return
-        
-        caption = message.caption or ""
-
-        is_tagged = (
-            self.bot_username and
-            f"@{self.bot_username}".lower() in caption.lower()
-        )
-
+    def _should_bot_respond(self, message: types.Message, text: str) -> bool:
+        """Return True if the bot should respond to this message."""
+        if message.chat.type == "private":
+            return True
+        is_tagged = self.bot_username and f"@{self.bot_username}" in (text or "")
         is_reply = (
             self.reply_on_reply and
             message.reply_to_message and
             message.reply_to_message.from_user and
             message.reply_to_message.from_user.id == self.bot_id
         )
+        return bool(is_tagged or is_reply)
 
-        if is_tagged or is_reply or message.chat.type == "private":
-            logging.info("Denied capability invoked: Media/File uploaded.")
+    async def _on_photo(self, message: types.Message):
+        """Handle photo messages."""
+        if message.chat.id in self._paused_chats:
+            return
+        if not self._is_chat_authorized(message):
+            return
+        if message.from_user:
+            if message.chat.type in ["group", "supergroup"]:
+                if message.from_user.is_bot and not self.allow_group_bots:
+                    return
+            if await self.is_user_muted(message.from_user):
+                return
+
+        if not self.reply_constraints.get("allow_media", False):
+            caption = message.caption or ""
+            if self._should_bot_respond(message, caption):
+                await self._send_block_notice(message, "Image uploads are not enabled. Please send text instead.")
+            return
+
+        caption = message.caption or ""
+        if not self._should_bot_respond(message, caption):
+            return
+
+        if caption and await is_category_blocked(caption):
+            logging.warning(f"Ethics pass rejected photo caption")
+            sender = message.from_user.username if message.from_user and message.from_user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [photo caption] {caption}")
+            return
+
+        user = message.from_user
+        name = "unknown user" if user is None else (user.username or user.full_name or str(user.id))
+        name = f"@{name}" if user and name == user.username else name
+        chat_id = message.chat.id
+
+        try:
+            buf = BytesIO()
+            await self.bot.download(message.photo[-1], destination=buf)
+            image_bytes = media_handler.sanitize_image(buf.getvalue())
+            data_uri = media_handler.image_to_data_uri(image_bytes, "image/jpeg")
+            pending_media = [{"type": "image_url", "image_url": {"url": data_uri}}]
+        except Exception as e:
+            logging.error(f"Failed to download photo: {e}")
+            await self._send_block_notice(message, "Failed to process the image. Please try again.")
+            return
+
+        display_text = f"{name}: {caption}" if caption else f"{name}: [image]"
+        with self.msg_lock:
+            self._message_queue.append((chat_id, display_text, message.message_id, pending_media))
+
+    async def _on_document(self, message: types.Message):
+        """Handle document (file) messages — PDF only."""
+        if message.chat.id in self._paused_chats:
+            return
+        if not self._is_chat_authorized(message):
+            return
+        if message.from_user:
+            if message.chat.type in ["group", "supergroup"]:
+                if message.from_user.is_bot and not self.allow_group_bots:
+                    return
+            if await self.is_user_muted(message.from_user):
+                return
+
+        caption = message.caption or ""
+
+        if not self.reply_constraints.get("allow_files", False):
+            if self._should_bot_respond(message, caption):
+                await self._send_block_notice(message, "File uploads are not enabled. Please send text instead.")
+            return
+
+        if not self._should_bot_respond(message, caption):
+            return
+
+        mime = message.document.mime_type or ""
+        if mime != "application/pdf":
+            await self._send_block_notice(message, "Only PDF files are supported. Please send a PDF.")
+            return
+
+        if caption and await is_category_blocked(caption):
+            logging.warning(f"Ethics pass rejected document caption")
+            sender = message.from_user.username if message.from_user and message.from_user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [document caption] {caption}")
+            return
+
+        user = message.from_user
+        name = "unknown user" if user is None else (user.username or user.full_name or str(user.id))
+        name = f"@{name}" if user and name == user.username else name
+        chat_id = message.chat.id
+        filename = message.document.file_name or "document.pdf"
+
+        try:
+            buf = BytesIO()
+            await self.bot.download(message.document, destination=buf)
+            pdf_text = media_handler.extract_pdf_text(buf.getvalue(), filename)
+        except Exception as e:
+            logging.error(f"Failed to download/extract PDF: {e}")
+            await self._send_block_notice(message, "Failed to process the PDF. Please try again.")
+            return
+
+        if await is_category_blocked(pdf_text):
+            logging.warning(f"Ethics pass rejected PDF content from '{filename}'")
+            sender = user.username if user and user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [PDF content blocked] {filename}")
+            return
+
+        user_request = f" — {caption}" if caption else " — please summarize this PDF"
+        display_text = f"{name}: [uploaded PDF '{filename}']{user_request}"
+        with self.msg_lock:
+            self._message_queue.append((chat_id, display_text, message.message_id, {"media": None, "context": pdf_text}))
+
+    async def _on_audio(self, message: types.Message):
+        """Handle voice notes and audio files — transcribe to text via Whisper."""
+        if message.chat.id in self._paused_chats:
+            return
+        if not self._is_chat_authorized(message):
+            return
+        if message.from_user:
+            if message.chat.type in ["group", "supergroup"]:
+                if message.from_user.is_bot and not self.allow_group_bots:
+                    return
+            if await self.is_user_muted(message.from_user):
+                return
+
+        caption = message.caption or ""
+
+        if not self.reply_constraints.get("allow_audio", False):
+            if self._should_bot_respond(message, caption):
+                await self._send_block_notice(message, "Audio messages are not enabled. Please send text instead.")
+            return
+
+        if not self._should_bot_respond(message, caption):
+            return
+
+        if caption and await is_category_blocked(caption):
+            logging.warning(f"Ethics pass rejected audio caption")
+            sender = message.from_user.username if message.from_user and message.from_user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [audio caption] {caption}")
+            return
+
+        user = message.from_user
+        name = "unknown user" if user is None else (user.username or user.full_name or str(user.id))
+        name = f"@{name}" if user and name == user.username else name
+        chat_id = message.chat.id
+        media = message.voice or message.audio
+        filename = getattr(media, "file_name", None) or ("voice.ogg" if message.voice else "audio")
+
+        try:
+            buf = BytesIO()
+            await self.bot.download(media, destination=buf)
+            transcript = await asyncio.to_thread(media_handler.transcribe_audio, buf.getvalue(), filename)
+        except Exception as e:
+            logging.error(f"Failed to download/transcribe audio: {e}")
+            await self._send_block_notice(message, "Failed to process the audio. Please try again.")
+            return
+
+        if await is_category_blocked(transcript):
+            logging.warning(f"Ethics pass rejected audio transcript from '{filename}'")
+            sender = user.username if user and user.username else "unknown"
+            alert_ethics_violation("incoming_message", f"From: {sender}: [audio transcript blocked] {filename}")
+            return
+
+        user_request = f" — {caption}" if caption else " — please respond to this voice message"
+        display_text = f"{name}: [sent audio '{filename}']{user_request}"
+        with self.msg_lock:
+            self._message_queue.append((chat_id, display_text, message.message_id, {"media": None, "context": transcript}))
+
+    async def _on_media_rejected(self, message: types.Message):
+        if not self._is_chat_authorized(message):
+            return
+
+        caption = message.caption or ""
+        if self._should_bot_respond(message, caption):
+            logging.info("Denied capability invoked: unsupported media type uploaded.")
             await self._send_block_notice(
                 message,
-                "I can only process text messages here. Please resend your request as text."
+                "I can process text, images, PDF files, and voice/audio messages. Video and other file types are not supported."
             )
 
     async def _runner(self, token):
@@ -493,8 +666,11 @@ class _TelegramChannel:
             self.dp.message.register(self._togglesearch_cmd, Command("togglesearch"))
             self.dp.message.register(self._purge_cmd, Command("purge"))
             self.dp.callback_query.register(self._on_callback_query)
+            self.dp.message.register(self._on_document, F.document)
+            self.dp.message.register(self._on_photo, F.photo)
+            self.dp.message.register(self._on_audio, F.voice | F.audio)
             self.dp.message.register(self._on_message, F.text)
-            self.dp.message.register(self._on_media_rejected, ~F.text)
+            self.dp.message.register(self._on_media_rejected, ~F.text & ~F.photo & ~F.document & ~F.voice & ~F.audio)
 
             self.connected = True
             self._polling_task = asyncio.create_task(self.dp.start_polling(self.bot, skip_updates=True, handle_signals=False))
@@ -636,9 +812,10 @@ def stop_telegram():
     _channel.stop()
 
 def send_message(text):
-    """Send a message to the active Telegram chat."""    
+    """Send a message to the active Telegram chat."""
     target_chat_id = _channel.chat_id
     target_reply_id = None
+    text = text.strip().strip('“”‘’"\'').strip()
     m = re.match(r'^\[(-?\d+)\]\s*(?:\[(\d+)\])?\s*(.*)$', text, re.DOTALL)
     if m:
         target_chat_id = m.group(1)
@@ -659,6 +836,10 @@ def send_message(text):
         return "Error: Refused: Unsafe response content."
         
     _channel.send_message(text, chat_id=target_chat_id, reply_to_id=target_reply_id)
+    # The agent has replied to the user, so drop any attached PDF/image context.
+    # This bounds the out-of-band slot to "arrival → first reply" and stops the
+    # 20k-char PDF (or large base64 image) being re-injected on idle-tail cycles.
+    media_handler.clear_pending()
 
 def is_search_disabled():
     """Check if admin disabled searching."""

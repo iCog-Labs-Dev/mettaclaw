@@ -61,9 +61,11 @@ opentelemetry-semantic-conventions==0.61b0
 orjson==3.11.8
 overrides==7.7.0
 packaging==26.0
+pillow==12.3.0
 propcache==0.4.1
 protobuf==6.33.6
 pybase64==1.4.3
+pypdf>=4.0.0
 pydantic==2.12.5
 pydantic-settings==2.13.1
 pydantic_core==2.41.5

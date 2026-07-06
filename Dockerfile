@@ -60,6 +60,7 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
     chromadb \
     janus-swi \
     openai \
+    pypdf \
     uagents \
     sentence-transformers
 

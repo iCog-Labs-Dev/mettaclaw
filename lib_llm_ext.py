@@ -53,7 +53,7 @@ class AIProvider(AbstractAIProvider):
         """Check if provider is configured (without initializing)."""
         return bool(os.environ.get(self._var_name))
 
-    def chat(self, content: str, max_tokens: int = 6000, **kwargs) -> str:
+    def chat(self, content: str, max_tokens: int = 6000, media=None, **kwargs) -> str:
         """Send chat request, initializing client if needed."""
         self._ensure_client()
 
@@ -61,11 +61,27 @@ class AIProvider(AbstractAIProvider):
             raise RuntimeError(f"{self.name} not configured (set {self._var_name})")
 
         content = content.replace(":-:-:-:", " ")
+
+        if media:
+            from src.media_handler import supports_vision, build_multimodal_content
+            if supports_vision(self.name):
+                user_content = build_multimodal_content(content, media)
+            else:
+                content = content + "\n[Note: an image was attached but the current model does not support vision]"
+                user_content = content
+        else:
+            user_content = content
+
+        # OpenAI's current models reject `max_tokens` on chat.completions and
+        # require `max_completion_tokens`; the OpenAI-compatible providers
+        # (Anthropic, ASICloud, Ollama) still expect `max_tokens`.
+        token_param = "max_completion_tokens" if "api.openai.com" in self._base_url else "max_tokens"
+
         try:
             response = self._client.chat.completions.create(
                 model=self._model_name,
-                messages=[{"role": "user", "content": content}],
-                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": user_content}],
+                **{token_param: max_tokens},
                 **kwargs
             )
 
@@ -79,11 +95,14 @@ class AIProvider(AbstractAIProvider):
         return text.replace("_quote_", '"').replace("_apostrophe_", "'")
 
 class OpenRouterProvider(AIProvider):
-    def chat(self, content: str, max_tokens: int = 6000, **kwargs) -> str:
+    def chat(self, content: str, max_tokens: int = 6000, media=None, **kwargs) -> str:
         self._ensure_client()
 
         if self._client is None:
             raise RuntimeError(f"{self.name} not configured (set {self._var_name})")
+
+        if media:
+            content = content + "\n[Note: an image was attached but the current model does not support vision]"
 
         try:
             response = self._client.chat.completions.create(
@@ -115,7 +134,7 @@ class AsiOneProvider(AIProvider):
     def __init__(self, name: str, var_name: str, model_name: str, base_url: str):
         super().__init__(name, var_name, model_name, base_url)
 
-    def chat(self, content: str, max_tokens: int = 6000, **kwargs) -> str:
+    def chat(self, content: str, max_tokens: int = 6000, media=None, **kwargs) -> str:
         """Send chat request, initializing client if needed."""
         self._ensure_client()
 
@@ -123,6 +142,9 @@ class AsiOneProvider(AIProvider):
             raise RuntimeError(f"{self.name} not configured (set {self._var_name})")
 
         sysmsg, usermsg = content.split(":-:-:-:")
+        if media:
+            usermsg = usermsg + "\n[Note: an image was attached but the current model does not support vision]"
+
         try:
             response = self._client.chat.completions.create(
                 model=self._model_name,
@@ -131,7 +153,7 @@ class AsiOneProvider(AIProvider):
                 max_tokens=max_tokens,
                 extra_body={
                     "enable_thinking": True,
-                    "thinking_budget": 6000 
+                    "thinking_budget": 6000
                 },
                 **kwargs
             )
@@ -192,12 +214,35 @@ _register_provider_instance(TestProvider())
 _register_provider(name="OpenAI", var_name="OPENAI_API_KEY", model_name="gpt-5.4", base_url="https://api.openai.com/v1")
 
 
+def get_pending_context_block() -> str:
+    """Format the pending document context for prompt injection, or '' if none.
+    Single source of the [ATTACHED DOCUMENT CONTENT] marker; called from
+    loop.metta when building $send so every provider path gets the document."""
+    from src.media_handler import get_pending_context
+    context = get_pending_context()
+    if not context:
+        return ""
+    return "\n\n[ATTACHED DOCUMENT CONTENT]\n" + context
+
+
+def pending_media_count() -> int:
+    """Number of pending out-of-band media blocks (0 if none). Called from
+    loop.metta to decide whether an OpenAI turn must go through callProvider
+    (vision-capable) instead of useGPT (text-only)."""
+    from src.media_handler import get_pending_media
+    media = get_pending_media()
+    return len(media) if media else 0
+
+
 def callProvider(provider_name: str, content: str, max_tokens: int = 6000) -> str:
-    """Generic dispatcher for MeTTa."""
+    """Generic dispatcher for MeTTa. Document context is injected upstream in
+    loop.metta ($send); this only transports the prompt text + media."""
+    from src.media_handler import get_pending_media
     provider = _get_provider(provider_name)
     if not provider or not provider.is_available:
         raise RuntimeError(f"Provider '{provider_name}' not available")
-    return provider.chat(content=content, max_tokens=max_tokens)
+    media = get_pending_media()
+    return provider.chat(content=content, max_tokens=max_tokens, media=media)
 
 
 

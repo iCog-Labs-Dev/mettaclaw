@@ -10,8 +10,7 @@ telegram:
   reply_on_reply_to_bot: true
   restrict_to_config_chat: true
   allowed_chats:
-    - "-5077329264"
-    - "-1003951566228"
+      -
   allow_group_bots: true
 
   dm_support:
@@ -19,9 +18,10 @@ telegram:
     if_enabled_treat_as_direct_tag: true
   reply_constraints:
     same_chat_only: true
-    text_only: true
-    allow_files: false
-    allow_media: false
+    text_only: false
+    allow_files: true
+    allow_media: true
+    allow_audio: true
     allow_admin_actions: false
     allow_new_outbound_chats: false
 
