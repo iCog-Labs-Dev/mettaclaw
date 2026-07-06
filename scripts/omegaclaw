@@ -406,6 +406,36 @@ start
 
 }
 
+version() {
+    script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+    if repo_root="$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null)"; then
+        if tag="$(git -C "$repo_root" describe --tags --abbrev=0 2>/dev/null)"; then
+            printf "OmegaClaw %s\n" "$tag"
+            return 0
+        fi
+
+        # Fallback: latest tag by version sort.
+        if tag="$(git -C "$repo_root" for-each-ref \
+            --sort=-v:refname \
+            --format='%(refname:short)' \
+            --count=1 \
+            refs/tags 2>/dev/null)" && [ -n "$tag" ]; then
+            printf "OmegaClaw %s\n" "$tag"
+            return 0
+        fi
+
+        # Fallback: commit hash if no tags exist.
+        if commit="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)"; then
+            printf "OmegaClaw %s\n" "$commit"
+            return 0
+        fi
+    fi
+
+    echo "OmegaClaw unknown"
+    return 1
+}
+
 help() {
     echo -e "Usage: ${0} [<image tag> | command [options]]"
     echo
@@ -425,6 +455,7 @@ help() {
     echo -e "\t-c <IRC channel> set IRC channel"
     echo -e "\t-t <channel type> set communication channel type: irc|telegram|slack|mattermost|test"
     echo -e "\t-d <Docker image> set Docker image name (default omegaclaw:latest)"
+    echo -e "\t--version |-v show version"
 }
 
 options() {
@@ -564,7 +595,8 @@ case "${command}" in
     start) start ;;
     stop) stop ;;
     clean) clean ;;
-    -h) help ;;
+    --version|-v) version ;;
+    -h|--help) help ;;
     *) image="${command}"
        bootstrap
        ;;
