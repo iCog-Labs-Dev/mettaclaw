@@ -422,6 +422,7 @@ help() {
     echo -e "\t-c <IRC channel> set IRC channel"
     echo -e "\t-t <channel type> set communication channel type: irc|telegram|slack|mattermost|test"
     echo -e "\t-d <Docker image> set Docker image name (default omegaclaw:latest)"
+    echo -e "\t-l <logging config> set Python logging config file"
 }
 
 options() {
@@ -436,6 +437,7 @@ options() {
     SL_BOT_TOKEN="${SL_BOT_TOKEN:-}"
     SL_CHANNEL_ID="${SL_CHANNEL_ID:-}"
     SL_POLL_INTERVAL="${SL_POLL_INTERVAL:-10}"
+    log_config_path=""
 
     if [[ "$#" -eq 0 ]]; then
         help
@@ -445,7 +447,7 @@ options() {
     command=${1}
     shift 1
 
-    while getopts s:t:p:u:c:d: flag
+    while getopts s:t:p:u:c:d:l: flag
     do
         case "${flag}" in
             s) OMEGACLAW_AUTH_SECRET=${OPTARG};;
@@ -454,6 +456,7 @@ options() {
             u) llm_server_local_url=${OPTARG};;
             c) IRC_channel=${OPTARG};;
             d) image=${OPTARG};;
+            l) log_config_path=${OPTARG};;
             *) help
                return 1
                ;;
@@ -506,6 +509,18 @@ start() {
     docker rm -f omegaclaw 2>/dev/null || true
     docker pull "${image}" 2>/dev/null || true
 
+    container_log_config_path=""
+
+    if [ -n "${log_config_path}" ]; then
+        if [ ! -f "${log_config_path}" ]; then
+            echo "Logging config file not found: ${log_config_path}" >&2
+            return 1
+        fi
+
+        log_config_abs="$(cd -- "$(dirname -- "${log_config_path}")" && pwd)/$(basename -- "${log_config_path}")"
+        container_log_config_path="/tmp/omegaclaw-logging.conf"
+    fi
+
     docker_cmd=(
         docker run -d -it
             --name omegaclaw
@@ -516,19 +531,31 @@ start() {
             --tmpfs /var/tmp:size=64m,mode=1777
             --tmpfs /run:size=16m,mode=755
             --volume omegaclaw-memory:/PeTTa/repos/OmegaClaw-Core/memory
-            --volume omegaclaw-logs:/PeTTa/repos/OmegaClaw-Core/logs
             -e "${api_token_var}"="${api_token}"
             -e "TG_BOT_TOKEN=${TG_BOT_TOKEN:-}"
             -e "SL_BOT_TOKEN=${SL_BOT_TOKEN:-}"
             -e OMEGACLAW_AUTH_SECRET="$OMEGACLAW_AUTH_SECRET"
             -e LLM_SERVER_LOCAL_URL="$llm_server_local_url"
             -e IMPORT_KB_ON_START="${IMPORT_KB_ON_START:-1}"
+    )
+
+    if [ -n "${container_log_config_path}" ]; then
+        docker_cmd+=(
+            --mount "type=bind,source=${log_config_abs},target=${container_log_config_path},readonly"
+        )
+    fi
+
+    docker_cmd+=(
             "$image"
             "commchannel=${commchannel}"
             "provider=${provider}"
             "embeddingprovider=${embeddingprovider}"
             "securityPolicyPath=/PeTTa/repos/OmegaClaw-Core/profile/policy.yaml"
     )
+
+    if [ -n "${container_log_config_path}" ]; then
+        docker_cmd+=("logConfigPath=${container_log_config_path}")
+    fi
 
     if [ "${commchannel}" = "irc" ]; then
       docker_cmd+=("IRC_channel=${IRC_channel}")
@@ -554,7 +581,6 @@ stop() {
 clean() {
     docker rm -f omegaclaw
     docker volume rm omegaclaw-memory
-    docker volume rm omegaclaw-logs
 }
 
 set -euo pipefail

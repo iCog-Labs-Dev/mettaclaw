@@ -3,7 +3,7 @@ import openai
 from typing import Optional
 from src.logger import setup_logging, get_logger
 
-setup_logging()
+
 logger = get_logger(__name__)
 
 def _log_raw(provider: str, model: str, raw: str) -> None:

@@ -6,6 +6,7 @@
 (= (maxOutputToken) (empty))
 (= (reasoningMode) (empty))
 (= (wakeupInterval) (empty))
+(= (logConfigPath) (empty))
 (= (spamShield) (empty)) ; TODO: this parameter is considered deprecated
 
 (= (initLoop)
@@ -18,9 +19,12 @@
           (configure maxOutputToken 6000)
           (configure reasoningMode medium)
           (configure wakeupInterval 600) ;600=10 minutes
+          (configure logConfigPath "")
           (change-state! &prevmsg "")
           (change-state! &lastresults "")
-          (change-state! &loops (maxNewInputLoops))))
+          (change-state! &loops (maxNewInputLoops))
+          (py-call (logger.setup_logging (logConfigPath)))
+          ))
 
 (= (initKnowledge)
    (progn (log INFO "loop" "Initializing knowledge base")

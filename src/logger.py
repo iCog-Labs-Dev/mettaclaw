@@ -1,69 +1,77 @@
 import logging
-import logging.handlers
-import os
+import logging.config
+from pathlib import Path
+from typing import Any
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-LOG_FILE = os.path.join(LOG_DIR, "omegaclaw.log")
-LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 
-class ConcatFormatter(logging.Formatter):
-    def format(self, record):
-        if isinstance(record.msg, (list, tuple)):
-            record.msg = " ".join(map(str, record.msg))
-            record.args = ()
-        return super().format(record)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_LOG_CONFIG = REPO_ROOT / "config" / "logging.conf"
 
-def setup_logging():
-    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-    level = LOG_LEVEL if LOG_LEVEL in valid_levels else "INFO"
-    if level != LOG_LEVEL:
-        print(f"[logger] Invalid LOG_LEVEL='{LOG_LEVEL}', defaulting to INFO")
+DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-    root_logger = logging.getLogger()
 
-    if any(isinstance(h, logging.handlers.TimedRotatingFileHandler) for h in root_logger.handlers):
+def _normalize_msg(msg: Any) -> str:
+    if isinstance(msg, (list, tuple)):
+        return " ".join(map(str, msg))
+    return str(msg)
+
+
+def _is_empty_config_path(config_path: Any) -> bool:
+    if config_path is None:
+        return True
+
+    text = str(config_path).strip()
+    return text in {"", "()", "(empty)", "empty", "None"}
+
+
+def setup_logging(config_path: str | None = None) -> None:
+    """
+    Configure Python logging from an INI logging config file.
+
+    If config_path is empty, use config/logging.conf.
+    If the selected config file does not exist, fall back to basic stderr logging.
+    """
+
+    path = DEFAULT_LOG_CONFIG if _is_empty_config_path(config_path) else Path(str(config_path))
+
+    if path.exists():
+        logging.config.fileConfig(
+            path,
+            disable_existing_loggers=False,
+        )
         return
 
-    formatter = ConcatFormatter(
-                LOG_FORMAT,
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-    root_logger.setLevel(level)
+    logging.basicConfig(
+        level=logging.INFO,
+        format=DEFAULT_LOG_FORMAT,
+        datefmt=DEFAULT_DATE_FORMAT,
+    )
 
-    if not any(type(h) is logging.StreamHandler for h in root_logger.handlers):
-        stdout_handler = logging.StreamHandler()
-        stdout_handler.setFormatter(formatter)
-        root_logger.addHandler(stdout_handler)
+    logging.getLogger(__name__).warning(
+        "Logging config file %s not found; using basic logging fallback.",
+        path,
+    )
 
-    # file handler — falls back to stdout only if the log directory is not writable
-    try:
-        os.makedirs(LOG_DIR, exist_ok=True)
-        with open(LOG_FILE, "a"):
-            pass
-        file_handler = logging.handlers.TimedRotatingFileHandler(
-            LOG_FILE, when="midnight", backupCount=7, encoding="utf-8"
-        )
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
-    except PermissionError:
-        root_logger.warning(f"Cannot write to log directory {LOG_DIR} — falling back to stdout only.")
-
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
-# MeTTa bridge — called via py-call from .metta files; module identifies the source file
 def log_debug(msg: str, module: str = "metta") -> None:
-    logging.getLogger(module).debug(msg)
+    logging.getLogger(module).debug(_normalize_msg(msg))
+
 
 def log_info(msg: str, module: str = "metta") -> None:
-    logging.getLogger(module).info(msg)
+    logging.getLogger(module).info(_normalize_msg(msg))
+
 
 def log_warning(msg: str, module: str = "metta") -> None:
-    logging.getLogger(module).warning(msg)
+    logging.getLogger(module).warning(_normalize_msg(msg))
+
 
 def log_error(msg: str, module: str = "metta") -> None:
-    logging.getLogger(module).error(msg)
+    logging.getLogger(module).error(_normalize_msg(msg))
+
+
+def log_exception(msg: str, module: str = "metta") -> None:
+    logging.getLogger(module).exception(_normalize_msg(msg))
