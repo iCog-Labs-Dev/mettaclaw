@@ -112,9 +112,9 @@ def _irc_loop(channel, server, port, nick):
                 logger.info(f"Registered. Joining {_channel}")
                 _send(f"JOIN {_channel}")
             elif len(parts) > 1 and parts[1] in {"403", "405", "471", "473", "474", "475"}:
-                logger.exception(f"Join failed: {line}")
+                logger.error(f"Join failed: {line}")
             elif len(parts) > 1 and parts[1] == "433":
-                logger.exception(f"Nickname in use: {line}")
+                logger.error(f"Nickname in use: {line}")
             elif line.startswith(":") and " PRIVMSG " in line:
                 try:
                     prefix, trailing = line[1:].split(" PRIVMSG ", 1)

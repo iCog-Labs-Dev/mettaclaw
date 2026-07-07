@@ -15,25 +15,49 @@ Centralised logging setup. Called once at startup from `lib_llm_ext.py`; all oth
 | `log_warning(msg, module)` | MeTTa bridge — write a WARNING entry under logger `module`. |
 | `log_error(msg, module)` | MeTTa bridge — write an ERROR entry under logger `module`. |
 
-The MeTTa bridge functions are invoked from `.metta` files via `py-call`, passing the source filename as `module` so log lines are attributed correctly:
+The MeTTa bridge functions are invoked by calling `log` helper function defined in `src/log.metta`, passing the source filename as `module` so log lines are attributed correctly:
 
 ```metta
-(py-call (logger.log_info "Initializing memory" "memory"))
+(log INFO "memory" "Initializing memory")
 ```
 
-**Log format** — every line follows:
+**Logging configuration** 
 
+By default, logging is configured from:
+
+```text
+config/logging.conf
 ```
+
+The default configuration writes logs to stderr using the format:
+
+```text
 YYYY-MM-DD HH:MM:SS | LEVEL    | module | message
 ```
 
-**Log level** — controlled by the `LOG_LEVEL` environment variable (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). Defaults to `INFO`. Invalid values are ignored and `INFO` is used.
-
-**Log file** — written to `logs/omegaclaw.log` relative to the repository root, rotated nightly. The `logs/` directory must be writable by the process user. When running in Docker the `entrypoint.sh` sets ownership of `logs/` to `nobody` (uid 65534) before the agent starts. If you mount a host directory over `logs/`, ensure it is writable by the same user:
+Docker container stdout/stderr is captured automatically and can be viewed with:
 
 ```bash
-mkdir -p ./logs && chown 65534:65534 ./logs
+docker logs -f omegaclaw
 ```
+
+**Custom logging configuration**
+
+Users can provide their own Python logging config file to control log levels, handlers, formatters, output destinations, and per-module logging behavior.
+
+When starting OmegaClaw through the launcher script, pass:
+
+```bash
+scripts/omegaclaw start -l /path/to/logging.conf
+```
+
+For standalone runs without Docker, pass the config path to the MeTTa runtime:
+
+```bash
+sh run.sh run.metta logConfigPath=/path/to/logging.conf
+```
+
+If no custom config is provided, OmegaClaw uses `config/logging.conf`. If the configured file is missing, OmegaClaw falls back to basic stderr logging.
 
 ## `lib_llm_ext.py`
 
