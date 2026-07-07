@@ -9,9 +9,9 @@ from io import BytesIO
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
+from telegramify_markdown import markdownify
 from src.config_helper import is_category_blocked, get_spam_protection_config
 from src import media_handler
-
 
 log_dir = os.path.join(os.path.dirname(__file__), "..", "logs")
 os.makedirs(log_dir, exist_ok=True)
@@ -752,6 +752,9 @@ class _TelegramChannel:
         if stop_event:
             stop_event.set()
 
+    def _to_mdv2(self, text):
+        return markdownify(text)
+
     def send_message(self, text, chat_id=None, reply_to_id=None):
         """Send a text message to the active chat, dispatched to the bot's event loop."""
         text = text.replace("\\n", "\n")
@@ -765,7 +768,7 @@ class _TelegramChannel:
         
         fut = asyncio.run_coroutine_threadsafe(
             self.bot.send_message(chat_id=target_chat_id,
-                                  text=text,
+                                  text=self._to_mdv2(text),
                                   reply_to_message_id=target_reply_id,
                                   parse_mode="MarkdownV2"),
             self.loop,
