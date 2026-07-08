@@ -22,6 +22,7 @@ telegram:
     allow_files: true
     allow_media: true
     allow_audio: true
+    allow_image_generation: true
     allow_admin_actions: false
     allow_new_outbound_chats: false
 
@@ -151,3 +152,9 @@ callable_capabilities:
       - no_arbitrary_url_fetch
       - no_authenticated_sites
       - no_file_downloads
+  image_generation:
+    enabled: true
+    constraints:
+      - ethics_checked_prompt
+      - no_nsfw_content
+      - same_chat_only

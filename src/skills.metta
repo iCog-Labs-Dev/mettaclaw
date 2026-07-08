@@ -12,6 +12,7 @@
     ;COMMUNICATION CHANNELS:
     "- Send message to user: send string"
     "- Search the web: search string"
+    "- Generate an image and send it to the user. Use when the user asks you to create, draw, generate, paint, or show a picture or image. Pass a vivid, detailed English description; the image is generated and sent for you, so do not use it for ordinary text replies (example: generate-image a red panda astronaut floating in space, studio lighting): generate-image description"
     "- Search the web using the Tavily Search Agent: tavily-search string"
     "- Get technical analysis for a stock ticker using the Technical Analysis Agent: technical-analysis ticker"
     ;CODE EXECUTION:
@@ -47,6 +48,9 @@
           (translatePredicate (nl $Out)),
           (translatePredicate (close $Out))
           APPEND-FILE-SUCCESS))
+
+(= (generate-image $prompt)
+   (py-call (media_handler.generate_and_send $prompt)))
 
 (= (tavily-search $query)
    (py-call (agentverse.tavily_search $query)))

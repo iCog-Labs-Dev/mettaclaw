@@ -8,6 +8,7 @@ import re
 from io import BytesIO
 
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.types import BufferedInputFile
 from aiogram.filters import Command
 from src.config_helper import is_category_blocked, get_spam_protection_config
 from src import media_handler
@@ -71,6 +72,7 @@ class _TelegramChannel:
         # Windowed batching state
         self._message_queue = []
         self._reply_to_ids = {}
+        self._reply_to_id = None
         self._paused_chats = set()
         self.search_disabled = False
         self._ready_windows = []
@@ -779,6 +781,47 @@ class _TelegramChannel:
             except Exception:
                 pass
 
+    def send_photo(self, image_bytes, caption=None, chat_id=None, reply_to_id=None):
+        """Send a photo to the active chat, dispatched to the bot's event loop.
+        Mirrors send_message's threading/targeting. Caption is sent plain (no
+        MarkdownV2) to avoid escaping failures."""
+        target_chat_id = chat_id or self.chat_id
+        self._stop_typing(str(target_chat_id))
+        target_reply_id = reply_to_id or (self._reply_to_id if target_chat_id == self.chat_id else None)
+        logging.info(f"send_photo: chat_id={target_chat_id} reply_to={target_reply_id} "
+                     f"connected={self.connected} bot={self.bot is not None} loop={self.loop is not None} "
+                     f"bytes={len(image_bytes)}")
+
+        if not self.connected or self.bot is None or self.loop is None or target_chat_id is None:
+            raise RuntimeError(
+                f"send_photo preconditions not met (connected={self.connected}, "
+                f"bot={self.bot is not None}, loop={self.loop is not None}, chat_id={target_chat_id})")
+
+        photo = BufferedInputFile(image_bytes, filename="image.png")
+        fut = asyncio.run_coroutine_threadsafe(
+            self.bot.send_photo(chat_id=target_chat_id,
+                                photo=photo,
+                                caption=caption,
+                                reply_to_message_id=target_reply_id),
+            self.loop,
+        )
+        try:
+            fut.result(timeout=30)
+            logging.info(f"send_photo: delivered to {target_chat_id}")
+        except Exception as e:
+            logging.error(f"Failed to send photo (retrying without caption/reply): {e}")
+            fut_fallback = asyncio.run_coroutine_threadsafe(
+                self.bot.send_photo(chat_id=target_chat_id,
+                                    photo=BufferedInputFile(image_bytes, filename="image.png")),
+                self.loop,
+            )
+            try:
+                fut_fallback.result(timeout=30)
+                logging.info(f"send_photo: delivered to {target_chat_id} (fallback, no caption)")
+            except Exception as e2:
+                logging.error(f"Failed to send photo: {e2}")
+                raise
+
 _channel = _TelegramChannel()
 
 def getLastMessage():
@@ -832,6 +875,14 @@ def send_message(text):
     # This bounds the out-of-band slot to "arrival → first reply" and stops the
     # 20k-char PDF (or large base64 image) being re-injected on idle-tail cycles.
     media_handler.clear_pending()
+
+def send_photo(image_bytes, caption=None):
+    """Send a generated photo to the active Telegram chat (called from
+    media_handler.generate_and_send). Targets the current chat / reply message;
+    does not touch the inbound pending slots."""
+    _channel.send_photo(image_bytes, caption=caption,
+                        chat_id=_channel.chat_id,
+                        reply_to_id=getattr(_channel, "_reply_to_id", None))
 
 def is_search_disabled():
     """Check if admin disabled searching."""

@@ -12,6 +12,7 @@
 !(import! &self (library OmegaClaw-Core ./channels/mattermost.py))
 !(import! &self (library OmegaClaw-Core ./channels/websearch.py))
 !(import! &self (library OmegaClaw-Core ./channels/tg_channel.py))
+!(import! &self (library OmegaClaw-Core ./src/media_handler.py))
 !(import! &self (library OmegaClaw-Core ./src/utils))
 !(import! &self (library OmegaClaw-Core ./src/channels))
 !(import! &self (library OmegaClaw-Core ./src/config_helper.py))
