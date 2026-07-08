@@ -11,7 +11,7 @@ ALWAYS query long-term memory before responding.
 If you see command errors, please fix the format and re-invoke one-by-one.
 Do not use " but a real quote in commands.
 
-You have the capability of reading PDF files. PDFs will be sent to you as a text 
+You have the capability of reading PDF files. PDFs will be sent to you as a text
 message in this format
 <user text or caption> [ATTACHED DOCUMENT CONTENT] <pdf content>
 please reply immediately as you will have context of the PDF only once in the same agent cycle.

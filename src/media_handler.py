@@ -43,6 +43,7 @@ def extract_pdf_text(file_bytes, filename, max_chars=20000):
     try:
         from pypdf import PdfReader
         from io import BytesIO
+
         reader = PdfReader(BytesIO(file_bytes))
         pages = []
         for page in reader.pages:
@@ -111,3 +112,141 @@ def supports_vision(provider_name):
 
 def build_multimodal_content(text, media):
     return [{"type": "text", "text": text}] + media
+
+
+# --- Image generation (outbound) -------------------------------------------
+# Provider-agnostic text-to-image. The default is OpenRouter FLUX; the image
+# provider is chosen INDEPENDENTLY of the chat `provider` (not every chat
+# provider can generate images) via IMAGE_PROVIDER / IMAGE_MODEL env vars.
+# OpenRouter's image endpoint is NOT OpenAI-SDK compatible (dedicated
+# POST /api/v1/images), so that path uses a raw requests POST; both styles
+# return the image as base64 in data[0].b64_json.
+IMAGE_PROVIDERS = {
+    "OpenRouter": {
+        "style": "openrouter",
+        "url": "https://openrouter.ai/api/v1/images",
+        "key_env": "OPENROUTER_API_KEY",
+        "default_model": "black-forest-labs/flux.2-pro",
+    },
+    "OpenAI": {
+        "style": "openai_sdk",
+        "base_url": "https://api.openai.com/v1",
+        "key_env": "OPENAI_API_KEY",
+        "default_model": "gpt-image-1",
+    },
+}
+
+
+def _generate_image_bytes(prompt):
+    """Generate an image for `prompt` via the configured image provider.
+    Returns raw image bytes, or None on any failure (never raises)."""
+    import os
+    provider_name = os.environ.get("IMAGE_PROVIDER", "OpenRouter")
+    cfg = IMAGE_PROVIDERS.get(provider_name) or IMAGE_PROVIDERS["OpenRouter"]
+    model = os.environ.get("IMAGE_MODEL", cfg["default_model"])
+    api_key = os.environ.get(cfg["key_env"])
+    if not api_key:
+        logger.error(f"Image generation: {cfg['key_env']} not set for provider {provider_name}")
+        return None
+    try:
+        if cfg["style"] == "openrouter":
+            import requests
+            resp = requests.post(
+                cfg["url"],
+                headers={"Authorization": f"Bearer {api_key}",
+                         "Content-Type": "application/json"},
+                json={"model": model, "prompt": prompt},
+                timeout=120,
+            )
+            resp.raise_for_status()
+            b64 = resp.json()["data"][0]["b64_json"]
+        elif cfg["style"] == "openai_sdk":
+            import openai
+            client = openai.OpenAI(api_key=api_key, base_url=cfg.get("base_url"))
+            resp = client.images.generate(model=model, prompt=prompt, response_format="b64_json")
+            b64 = resp.data[0].b64_json
+        else:
+            logger.error(f"Image generation: unknown style for provider {provider_name}")
+            return None
+        image_bytes = base64.b64decode(b64)
+        logger.info(f"Generated image via {provider_name}/{model}: {len(image_bytes)} bytes")
+        return image_bytes
+    except Exception as e:
+        logger.error(f"Image generation failed ({provider_name}/{model}): {e}")
+        return None
+
+
+def _live_tg_channel():
+    """Return the tg_channel module whose _channel is the LIVE aiogram-connected
+    instance. The bot is loaded by MeTTa as top-level `tg_channel`, but a plain
+    `from channels import tg_channel` yields a SECOND, unconnected module object
+    (channels/ has no __init__.py -> implicit namespace package -> a separate
+    sys.modules entry with its own never-started _channel). Search sys.modules for
+    the connected one so send_photo reaches the running bot; fall back gracefully."""
+    import sys
+    fallback = None
+    for name, mod in list(sys.modules.items()):
+        if mod is None or not (name == "tg_channel" or name.endswith(".tg_channel")):
+            continue
+        ch = getattr(mod, "_channel", None)
+        if ch is not None and getattr(ch, "connected", False):
+            return mod
+        if fallback is None and ch is not None:
+            fallback = mod
+    if fallback is not None:
+        return fallback
+    from channels import tg_channel
+    return tg_channel
+
+
+def _image_generation_allowed():
+    """Read the allow_image_generation gate from the active channel's reply
+    constraints. Fail closed (False) if unavailable."""
+    try:
+        tg_channel = _live_tg_channel()
+        constraints = getattr(tg_channel._channel, "reply_constraints", None) or {}
+        return bool(constraints.get("allow_image_generation", False))
+    except Exception as e:
+        logger.error(f"Could not read allow_image_generation gate: {e}")
+        return False
+
+
+def _prompt_is_unsafe(prompt):
+    """Run the ethics classifier on the image prompt before spending money on
+    generation. Sync bridge over the async is_category_blocked, mirroring
+    tg_channel.send_message. Fail closed (unsafe) on unexpected error."""
+    import asyncio
+    from src.config_helper import is_category_blocked
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+            return loop.run_until_complete(is_category_blocked(prompt))
+        except RuntimeError:
+            return asyncio.run(is_category_blocked(prompt))
+    except Exception as e:
+        logger.error(f"Image prompt ethics check failed: {e}")
+        return True
+
+
+def generate_and_send(prompt):
+    """MeTTa skill entry point (generate-image): generate an image for `prompt`
+    and send it to the user. Returns a short status string (never raises) that
+    the agent sees next cycle in LAST_SKILL_USE_RESULTS. Bytes are generated and
+    dispatched here (not through MeTTa, which only handles strings)."""
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return "IMAGE_FAILED: empty prompt"
+    if not _image_generation_allowed():
+        return "IMAGE_DISABLED: image generation is turned off"
+    if _prompt_is_unsafe(prompt):
+        return "Refused: unsafe image prompt"
+    image_bytes = _generate_image_bytes(prompt)
+    if not image_bytes:
+        return f"IMAGE_FAILED: could not generate image for: {prompt}"
+    try:
+        tg_channel = _live_tg_channel()
+        tg_channel.send_photo(image_bytes, caption=prompt[:1024])
+    except Exception as e:
+        logger.error(f"Failed to send generated image: {e}")
+        return f"IMAGE_FAILED: generated but could not send: {e}"
+    return f"IMAGE_SENT: {prompt}"
