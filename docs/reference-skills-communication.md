@@ -78,7 +78,7 @@ A string of search results suitable for feeding back into the prompt.
 
 ### Examples
 ```metta
-(search "MeTTa AtomSpace tutorial")
+(websearch "MeTTa AtomSpace tutorial")
 ```
 
 ### Notes / Limits
