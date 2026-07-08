@@ -410,26 +410,22 @@ version() {
     script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
     if repo_root="$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null)"; then
-        if tag="$(git -C "$repo_root" describe --tags --abbrev=0 2>/dev/null)"; then
-            printf "OmegaClaw %s\n" "$tag"
+        if version="$(git -C "$repo_root" describe --tags --dirty --always 2>/dev/null)"; then
+            printf "OmegaClaw %s\n" "$version"
             return 0
         fi
+    fi
+    if [ -r /etc/omegaclaw/version ]; then
+        version="$(cat /etc/omegaclaw/version)"
+        if [ -n "$version" ]; then
+            printf "OmegaClaw %s\n" "$version"
+            return 0
+        fi
+    fi
 
-        # Fallback: latest tag by version sort.
-        if tag="$(git -C "$repo_root" for-each-ref \
-            --sort=-v:refname \
-            --format='%(refname:short)' \
-            --count=1 \
-            refs/tags 2>/dev/null)" && [ -n "$tag" ]; then
-            printf "OmegaClaw %s\n" "$tag"
-            return 0
-        fi
-
-        # Fallback: commit hash if no tags exist.
-        if commit="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)"; then
-            printf "OmegaClaw %s\n" "$commit"
-            return 0
-        fi
+    if [ -n "${OMEGACLAW_VERSION:-}" ]; then
+        printf "OmegaClaw %s\n" "$OMEGACLAW_VERSION"
+        return 0
     fi
 
     echo "OmegaClaw unknown"
