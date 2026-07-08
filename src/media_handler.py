@@ -58,23 +58,41 @@ def extract_pdf_text(file_bytes, filename, max_chars=20000):
         return f"[PDF: {filename}]\n[Could not extract text: {e}]"
 
 
-def transcribe_audio(file_bytes, filename, model="whisper-1", max_bytes=25 * 1024 * 1024):
-    """Transcribe an audio/voice file to text via the OpenAI Whisper API.
+def transcribe_audio(file_bytes, filename, model="openai/whisper-large-v3", max_bytes=25 * 1024 * 1024, language=None, temperature=None):
+    """Transcribe an audio/voice file to text via OpenRouter Whisper Large V3.
+
     Returns a marker-prefixed string for the PDF-style context slot, or an
-    error note (never raises) so the agent still gets a usable turn."""
+    error note (never raises) so the agent still gets a usable turn.
+    """
     try:
         if len(file_bytes) > max_bytes:
             return f"[AUDIO TRANSCRIPT: {filename}]\n[Audio too large to transcribe]"
-        import os, openai
-        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-        resp = client.audio.transcriptions.create(model=model, file=(filename, file_bytes))
-        text = (resp.text or "").strip()
+
+        import os, io, openai
+
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            return f"[AUDIO TRANSCRIPT: {filename}]\n[Could not transcribe: OPENROUTER_API_KEY is not set]"
+
+        client = openai.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1",)
+        audio_file = io.BytesIO(file_bytes)
+        audio_file.name = filename
+        kwargs = { "model": model, "file": audio_file,}
+        if language:
+            kwargs["language"] = language
+
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+
+        resp = client.audio.transcriptions.create(**kwargs)
+        text = (getattr(resp, "text", "") or "").strip()
         logger.info(f"Transcribed {filename}: {len(text)} chars")
+
         return f"[AUDIO TRANSCRIPT: {filename}]\n{text}"
+
     except Exception as e:
         logger.error(f"Audio transcription failed for {filename}: {e}")
         return f"[AUDIO TRANSCRIPT: {filename}]\n[Could not transcribe: {e}]"
-
 
 def sanitize_image(file_bytes, max_dim=2048, quality=85):
     """Re-encode an image via Pillow: strips EXIF/metadata and destroys most
