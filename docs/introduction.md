@@ -116,7 +116,7 @@ lib_omegaclaw.metta       loads all submodules
 ├── src/loop.metta        agentic loop, turn structure
 ├── src/memory.metta      long-term memory + history
 ├── src/skills.metta      callable skill surface
-├── src/channels.metta    receive/send/search dispatch
+├── src/channels.metta    receive/send dispatch
 ├── src/utils.metta       configure, string ops, time
 ├── src/helper.py         parenthesis balancing, normalization
 ├── src/agentverse.py     remote-agent bridge
