@@ -6,6 +6,7 @@
 (= (maxOutputToken) (empty))
 (= (reasoningMode) (empty))
 (= (wakeupInterval) (empty))
+(= (memoryDirectory) (empty))
 (= (spamShield) (empty)) ; TODO: this parameter is considered deprecated
 
 (= (initLoop)
@@ -18,6 +19,7 @@
           (configure maxOutputToken 6000)
           (configure reasoningMode medium)
           (configure wakeupInterval 600) ;600=10 minutes
+          (configure memoryDirectory ./)
           (change-state! &prevmsg "")
           (change-state! &lastresults "")
           (change-state! &loops (maxNewInputLoops))))
@@ -36,11 +38,14 @@
                          " toolName3 arg3" (newline)
                          " toolName4 arg4" (newline)
                          " toolName5 arg5" (newline)
-                         " LAST_SKILL_USE_RESULTS: " (last_chars (get-state &lastresults) (maxFeedback)) " HISTORY: " (getHistory) " TIME: " (get_time_as_string)))))
+                         " SAVE_PERMANENT_FILES_DIR: " (memoryDirectory)
+                         " LAST_SKILL_USE_RESULTS: you must rectify ALERT_FAILED skill use cases " (last_chars (get-state &lastresults) (maxFeedback)) 
+                         " HISTORY: " (getHistory) 
+                         " TIME: " (get_time_as_string)))))
 
 (= (HandleError $msg $cmd $sexpr)
    (case $sexpr (((Error $a $b) (let $new (append (get-state &error) (($msg $cmd)))
-                                          (change-state! &error $new)))
+                                          (progn (change-state! &error $new) (ALERT_FAILED $a $b))))
                  ($else $sexpr))))
 
 (= (omegaclaw)
@@ -73,7 +78,7 @@
                                        ($_ (change-state! &error ()))
                                        ($_ (HandleError MULTI_COMMAND_FAILURE_NOTHING_WAS_DONE_PLEASE_CORRECT_PARENTHESES_AND_USE_QUOTES_AND_RETRY $response $sexpr))
                                        ($_ (println! (RESPONSE: $sexpr)))
-                                       ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError SINGLE_COMMAND_FORMAT_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $s (catch (let $R (eval $s) (py-call (helper.normalize_string $R)))))))))))
+                                       ($results (RESULTS: (collapse (let $s (superpose $sexpr) (COMMAND_RETURN: ($s (HandleError SINGLE_COMMAND_ERROR_NOTHING_WAS_DONE_PLEASE_FIX_AND_RETRY $s (catch (let $R (eval $s) (py-call (helper.normalize_string $R)))))))))))
                                        ($_ (println! $results)))
                                       (progn (if (or $msgnew  (not (== $sexpr ()))) (addToHistory $msg $response $sexpr $msgnew) _)
                                              (change-state! &lastresults (string-safe (repr $results)))))
