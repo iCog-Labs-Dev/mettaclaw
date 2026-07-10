@@ -457,6 +457,19 @@ start
 }
 
 version() {
+    local version=""
+    local script_dir=""
+    local repo_root=""
+
+    if [[ -r /etc/omegaclaw/version ]]; then
+        IFS= read -r version < /etc/omegaclaw/version || true
+
+        if [[ -n "$version" ]]; then
+            printf 'OmegaClaw %s\n' "$version"
+            return 0
+        fi
+    fi
+
     script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
     if repo_root="$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null)"; then

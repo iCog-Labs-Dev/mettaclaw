@@ -20,6 +20,7 @@
           (configure wakeupInterval 600) ;600=10 minutes
           (change-state! &prevmsg "")
           (change-state! &lastresults "")
+          (change-state! &version_sent False)
           (change-state! &loops (maxNewInputLoops))))
 
 (= (initKnowledge)
@@ -54,7 +55,7 @@
                         (change-state! &loops (- (get-state &loops) 1)))
           (let $prompt (getContext)
                (progn (println! (---------iteration $k))
-                      (let* (($_ (if (== $k 2) (send (version)) _))
+                      (let* (($_ (if (and (== (readyToSend) ready) (== (get-state &version_sent) False)) (progn ((send (version)) (change-state! &version_sent True))) _))
                              ($msgrcv (string-safe (repr (receive))))
                              ($msgnew (prog1 (and (> (string_length $msgrcv) 0) (!= $msgrcv (get-state &prevmsg)))
                                              (if (> (string_length $msgrcv) 0) (change-state! &prevmsg $msgrcv) _)))

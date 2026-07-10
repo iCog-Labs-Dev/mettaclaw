@@ -296,6 +296,9 @@ def getLastMessage():
 
     return " | ".join(text for _, text in batch)
 
+def is_ready_to_send():
+    with _state_lock:
+        return "ready" if _running and _ws_url else "not-ready"
 
 def send_message(text):
     message_text = str(text).replace("\\n", "\n").replace("\r", "")

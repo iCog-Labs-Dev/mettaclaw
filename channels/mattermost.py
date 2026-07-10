@@ -45,6 +45,9 @@ def getLastMessage():
         _last_message = ""
         return tmp
 
+def is_ready_to_send():
+    return "ready" if _connected and CHANNEL_ID else "not-ready"
+
 def _parse_auth_candidate(msg):
     text = msg.strip()
     lower = text.lower()

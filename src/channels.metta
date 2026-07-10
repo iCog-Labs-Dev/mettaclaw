@@ -73,6 +73,19 @@
                                        (let $temp (cut) (py-call (mattermost.send_message $safemsg)))
                                        (let $temp (cut) (py-call (mock.send_message $safemsg)))))))))) _))
 
+(= (readyToSend)
+    (if (== (commchannel) websocket)
+         (py-call (wschat.is_ready_to_send))
+         (if (== (commchannel) irc)
+              (py-call (irc.is_ready_to_send))
+              (if (== (commchannel) telegram)
+                (py-call (telegram.is_ready_to_send))
+                (if (== (commchannel) slack)
+                     (py-call (slack.is_ready_to_send))
+                     (if (== (commchannel) mattermost)
+                          (py-call (mattermost.is_ready_to_send))
+                          True))))))
+
 ;Search the internet for some information:
 (= (search $msg)
    (py-call (websearch.search $msg)))

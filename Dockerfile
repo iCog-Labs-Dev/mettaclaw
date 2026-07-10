@@ -114,8 +114,14 @@ ENV MEMORY_DIR=${OMEGACLAW_DIR}/memory
 # Start defaults for import-kb
 ENV IMPORT_KB_ON_START=0
 
+ARG OMEGACLAW_VERSION=unknown
+
 # Bring in only local OmegaClaw source (filtered by .dockerignore).
 COPY . ${OMEGACLAW_DIR}
+
+RUN mkdir -p /etc/omegaclaw \
+ && printf '%s\n' "${OMEGACLAW_VERSION}" > /etc/omegaclaw/version \
+ && chmod 0444 /etc/omegaclaw/version
 
 RUN cp ${OMEGACLAW_DIR}/run.metta /PeTTa/run.metta \
  && mkdir -p ${MEMORY_DIR}/chroma_db \

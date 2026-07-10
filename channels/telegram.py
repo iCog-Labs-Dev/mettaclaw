@@ -37,6 +37,9 @@ def getLastMessage():
         _last_message = ""
         return tmp
 
+def is_ready_to_send():
+    with _state_lock:
+        return "ready" if _connected and _chat_id else "not-ready"
 
 def _parse_auth_candidate(msg):
     text = msg.strip()
