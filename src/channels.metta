@@ -85,7 +85,3 @@
                      (if (== (commchannel) mattermost)
                           (py-call (mattermost.is_ready_to_send))
                           True))))))
-
-;Search the internet for some information:
-(= (search $msg)
-   (py-call (websearch.search $msg)))
