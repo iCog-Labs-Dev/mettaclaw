@@ -1,7 +1,7 @@
 import os
 import lib_llm_ext as llm
 import pluginapi as plugin
-from src.logger import setup_logging, get_logger
+from src.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -58,7 +58,7 @@ class OpenAIProviderImpl(llm.AIProvider):
                 details = getattr(usage, "input_tokens_details", None)
                 cached_tokens = getattr(details, "cached_tokens", None) if details else None
 
-                print(
+                logger.info(
                     f"[LLM_USAGE] provider={self._name} model={self._model_name} "
                     f"input_tokens={input_tokens} output_tokens={output_tokens} "
                     f"total_tokens={total_tokens} cached_tokens={cached_tokens}"

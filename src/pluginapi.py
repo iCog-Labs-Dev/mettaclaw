@@ -2,6 +2,10 @@
 OmegaClaw API which should be used to implement extensions.
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _commChannelRegistry = {}
 _llmProviderRegistry = {}
 
@@ -24,7 +28,7 @@ class CommChannel:
 def registerCommChannel(id: str, channel: CommChannel) -> None:
     """Register communication channel in the registry"""
     global _commChannelRegistry
-    print(f"registerCommChannel: registering communication channel {id}")
+    logger.info(f"registerCommChannel: registering communication channel {id}")
     _commChannelRegistry[id] = channel
 
 
@@ -44,5 +48,5 @@ class LLMProvider:
 def registerLLMProvider(id: str, provider: LLMProvider) -> None:
     """Register LLM provider in the registry"""
     global _llmProviderRegistry
-    print(f"registerLLMProvider: registering LLM provider {id}")
+    logger.info(f"registerLLMProvider: registering LLM provider {id}")
     _llmProviderRegistry[id] = provider

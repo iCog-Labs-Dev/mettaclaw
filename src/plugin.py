@@ -10,6 +10,9 @@ import importlib
 import importlib.util
 import pluginapi
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 _REPO = pathlib.Path(__file__).parent.parent.resolve()
 _plugins = {}
@@ -18,7 +21,7 @@ _llmprovider: pluginapi.LLMProvider = None
 
 def _error(func, text):
     error = f"{func}: {text}"
-    print(error)
+    logger.error(error)
     raise RuntimeError(error)
 
 def initPlugins():
@@ -69,12 +72,12 @@ def _initPythonPlugin(plugin):
     location = plugin.get("location")
     mod = None
     if location is None:
-        print(f"_initPythonPlugin: loading {name} plugin from PYTHONPATH using Python module loader")
+        logger.info(f"_initPythonPlugin: loading {name} plugin from PYTHONPATH using Python module loader")
         mod = importlib.import_module(name)
     else:
         location = pathlib.Path(location.format(REPO=_REPO)).resolve()
         modpath = location.joinpath(f"{name}.py").resolve()
-        print(f"_initPythonPlugin: loading {name} plugin from {modpath} using Python module loader")
+        logger.info(f"_initPythonPlugin: loading {name} plugin from {modpath} using Python module loader")
         # adding location into sys.path to be able loading plugins which
         # consist of multiple files
         sys.path.append(str(location))
