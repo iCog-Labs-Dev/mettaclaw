@@ -32,9 +32,14 @@ of approximately 200 lines of code.
 
 ## Installation
 
-Prerequisites: Git, Python3, Pip and [venv](https://docs.python.org/3/library/venv.html) library
+Prerequisites: Git, Python 3.10 or later including dev headers, Pip and [venv](https://docs.python.org/3/library/venv.html) library, C compiler (for building [janus-swi](https://pypi.org/project/janus-swi/) library)
 
-Get [SWI-Prolog 9.1.12 or later](https://www.swi-prolog.org/).
+Under Ubuntu one can use the following command to install prerequisites:
+```
+sudo apt-get install git python3 python3-dev python3-pip python3-venv build-essential
+```
+
+Get [SWI-Prolog 10.0.2 or later](https://www.swi-prolog.org/).
 
 Install OmegaClaw:
 ```
@@ -67,14 +72,29 @@ python3 -m pip install -r ./repos/OmegaClaw-Core/requirements.txt
 
 Ensure that you have [Docker installed](https://docs.docker.com/engine/install/)
 
-Run OmegaClaw using next command:
+Run OmegaClaw using the next command:
 ```
 curl -fsSL https://raw.githubusercontent.com/asi-alliance/OmegaClaw-Core/refs/heads/main/scripts/omegaclaw | bash -s -- singularitynet/omegaclaw:latest
 ```
 
-To run specific version of OmegaClaw set version in `TAG` environment variable and run the following command:
+To run a specific version of OmegaClaw set version in `TAG` environment variable and run the following command:
 ```
 export TAG=v0.1.15; curl -fsSL  https://github.com/asi-alliance/OmegaClaw-Core/raw/refs/tags/$TAG/scripts/omegaclaw | bash -s -- singularitynet/omegaclaw:$TAG
+```
+
+To stop the OmegaClaw Docker container:
+```
+docker stop omegaclaw
+```
+
+To restart the OmegaClaw Docker container:
+```
+docker start omegaclaw
+```
+
+To reset OmegaClaw's memory:
+```
+docker volume rm omegaclaw-memory
 ```
 
 ---
@@ -142,7 +162,7 @@ If you want to skip preloading the knowledge then run `export IMPORT_KB_ON_START
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `commchannel` | `irc` | Type of the communication channel for agent to use - `irc`, `telegram`, `mattermost` or `slack` |
+| `commchannel` | `irc` | Type of the communication channel for agent to use - `irc`, `telegram`, `mattermost`, `slack` or `websocket` |
 | `IRC_channel` | `##omegaclaw` | IRC channel to join |
 | `IRC_server` | `irc.quakenet.org` | IRC server hostname |
 | `IRC_port` | 6667 | IRC port |
@@ -153,6 +173,8 @@ If you want to skip preloading the knowledge then run `export IMPORT_KB_ON_START
 | `SL_POLL_INTERVAL` | 60 | Slack polling interval in seconds (minimum effective value is 60). |
 | `MM_URL` | `https://chat.singularitynet.io` | Mattermost base URL. |
 | `MM_CHANNEL_ID` | `8fjrmabjx7gupy7e5kjznpt5qh` | Mattermost channel ID. |
+| `WS_URL` |  | WebSocket endpoint URL (`ws://` or `wss://`). Required when `commchannel=websocket`. |
+| `WS_TOKEN` |  | Optional bearer token sent as `Authorization: Bearer <token>`. |
 
 | Environment variable | Meaning |
 |---|---|
