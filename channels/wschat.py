@@ -69,7 +69,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from src.logger import get_logger
-import pluginapi as plugin
+import src.pluginapi as plugin
 
 logger = get_logger(__name__)
 
