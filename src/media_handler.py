@@ -181,7 +181,7 @@ def _generate_image_bytes(prompt):
         elif cfg["style"] == "openai_sdk":
             import openai
             client = openai.OpenAI(api_key=api_key, base_url=cfg.get("base_url"))
-            resp = client.images.generate(model=model, prompt=prompt, response_format="b64_json")
+            resp = client.images.generate(model=model, prompt=prompt)
             b64 = resp.data[0].b64_json
         else:
             logger.error(f"Image generation: unknown style for provider {provider_name}")
