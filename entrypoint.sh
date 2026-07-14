@@ -1,26 +1,33 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Adds slash at the end which is critical to Nginx configuration work properly
+nginx_url() {
+    text=$1
+    [[ ${text} != */ ]] && text="${text}/"
+    echo "${text}"
+}
+
 cd /PeTTa
 
 GATEWAY_URL="http://localhost:8080"
 EMBEDDING_PROVIDER="${EMBEDDING_PROVIDER:-Local}"
-
-export OPENAIAPI_URL="http://localhost:8080" # dummy value
-export MM_URL="http://localhost:8080" # dummy value
+OPENAIAPI_URL="http://localhost:8080/" # dummy value
+MM_URL="http://localhost:8080/" # dummy value
 for arg in "$@"; do
   if [[ "$arg" == embeddingprovider=* ]]; then
-    export EMBEDDING_PROVIDER="${arg#*=}"
+    EMBEDDING_PROVIDER="${arg#*=}"
   fi
   # URL to redirect OpenAIAPI provider requests
   if [[ "$arg" == openaiapi_url=* ]]; then
-    export OPENAIAPI_URL="${arg#*=}"
+    OPENAIAPI_URL=$(nginx_url "${arg#*=}")
   fi
   # URL to redirect Mattermost communication channel requests
   if [[ "$arg" == MM_URL=* ]]; then
-    export MM_URL="${arg#*=}"
+    MM_URL=$(nginx_url "${arg#*=}")
   fi
 done
+export GATEWAY_URL EMBEDDING_PROVIDER OPENAIAPI_URL MM_URL
 
 su www-data -s /bin/sh -c "sh /opt/nginx/nginx.sh"
 

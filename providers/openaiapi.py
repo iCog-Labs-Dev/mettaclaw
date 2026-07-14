@@ -15,7 +15,7 @@ class OpenAIAPI(plugin.LLMProvider):
         return config.get("model", "qwen3.5:9b")
 
     def base_url(self, config):
-        return config.get("openaiapi_url", "http://localhost:11434/v1")
+        return config.get("openaiapi_url", "http://localhost:11434/v1/")
 
     def config(self, config: dict) -> None:
         self.delegate = llm.AIProvider(self._name, self.api_token_var(config),
