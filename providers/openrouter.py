@@ -3,6 +3,9 @@ import openai
 from typing import Optional, Dict, Any
 import lib_llm_ext as llm
 import pluginapi as plugin
+from src.logger import get_logger
+
+logger = get_logger(__name__)
 
 class OpenRouterProvider(plugin.LLMProvider):
 

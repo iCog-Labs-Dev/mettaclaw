@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Dict, Any
 
 PROMPT_DELIMITER = ":-:-:-:"
 
-from src.logger import setup_logging, get_logger
+from src.logger import get_logger
 
 
 logger = get_logger(__name__)
