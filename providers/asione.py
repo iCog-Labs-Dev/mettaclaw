@@ -52,5 +52,5 @@ class ASIOneProviderImpl(llm.AIProvider):
             resp = self._clean_text(raw)
             return resp
         except Exception as e:
-            logger.exception(f"[lib_llm_ext.ASIOneProviderImpl.chat]: Exception while communicating with LLM: {e}")
+            logger.exception(f"[ASIOneProviderImpl.chat]: Exception while communicating with LLM: {e}")
             return ""

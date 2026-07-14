@@ -130,7 +130,7 @@ def _irc_loop(channel, server, port, nick):
                     elif state == "auth_bound":
                         _send(f"PRIVMSG {_channel} :Authentication successful for {nick}.")
                 except Exception as e:
-                    logger.exception(f"[IRC]: exception caught {repr(e)}")
+                    logger.exception(f"Exception caught {repr(e)}")
     _connected = False
     with _sock_lock:
         _sock = None
@@ -164,7 +164,7 @@ def send_message(text):
             if _connected and _channel:
                  _send(f"PRIVMSG {_channel} :{chunk}")
         except Exception as e:
-            logger.exception(f"[IRC] error in send_message on channel {_channel}: {e}")
+            logger.exception(f"Error in send_message on channel {_channel}: {e}")
 
 class IRCChannel(plugin.CommChannel):
 

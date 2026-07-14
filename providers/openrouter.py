@@ -31,7 +31,7 @@ class OpenRouterProviderImpl(llm.AIProvider):
         proxy_url = os.environ.get("GATEWAY_URL")
         if proxy_url:
             base_url = f"{proxy_url.rstrip('/')}/openrouter/"
-            logger.info(f"[lib_llm_ext.OpenRouterProviderImpl._create_client]: Connecting via proxy: {base_url}")
+            logger.info(f"[OpenRouterProviderImpl._create_client]: Connecting via proxy: {base_url}")
             return openai.OpenAI(
                     api_key="proxy",
                     base_url=base_url,

@@ -83,7 +83,7 @@ class AIProvider(AbstractAIProvider):
         if proxy_url:
             prefix = self._name.lower()
             base_url = f"{proxy_url.rstrip('/')}/{prefix}/"
-            logger.info(f"[lib_llm_ext.AIProvider._create_client]: Connecting via proxy: {base_url}")
+            logger.info(f"[AIProvider._create_client]: Connecting via proxy: {base_url}")
             return openai.OpenAI(
                     api_key="proxy",
                     base_url=base_url,
@@ -129,7 +129,7 @@ class AIProvider(AbstractAIProvider):
             resp = self._clean_text(raw)
             return resp
         except Exception as e:
-            logger.exception(f"[lib_llm_ext.AIProvider.chat]: Exception while communicating with LLM: {e}")
+            logger.exception(f"[AIProvider.chat]: Exception while communicating with LLM: {e}")
             return ""
 
     def _clean_text(self, text: str) -> str:

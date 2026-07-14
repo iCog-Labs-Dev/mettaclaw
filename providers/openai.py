@@ -68,5 +68,5 @@ class OpenAIProviderImpl(llm.AIProvider):
             llm._log_raw(self._name, self._model_name, raw)
             return self._clean_text(raw)
         except Exception as e:
-            logger.exception(f"[lib_llm_ext.OpenAIProviderImpl.chat]: Exception while communicating with LLM: {e}")
+            logger.exception(f"[OpenAIProviderImpl.chat]: Exception while communicating with LLM: {e}")
             return ""
