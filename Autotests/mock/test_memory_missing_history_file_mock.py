@@ -1,4 +1,15 @@
-import time
+"""
+Mock test for history.metta recreation.
+
+Verifies the agent's resilience when the main history file is missing. 
+The test temporarily moves the existing history.metta to a backup, sends 
+a message to trigger the agent's read/write cycle, and ensures that the 
+agent does not crash but successfully creates a new history file. 
+The original history is safely restored during teardown regardless of the test outcome.
+
+Run:
+    pytest test_memory_missing_history_file_mock.py -s
+"""
 from helpers import (
     Checker, dexec_root, make_prompt, wait_for_skill_call, HISTORY_FILE
 )
