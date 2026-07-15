@@ -15,7 +15,7 @@
 
 ;Connect all the channels:
 (= (initChannels)
-   (progn (println! "Initializing channels")
+   (progn (log INFO "channels" "Initializing channels")
           (configure commchannel irc)
           (if (== (commchannel) irc)
               (progn (configure IRC_channel ##omegaclaw)
@@ -72,7 +72,3 @@
                                    (if (== (commchannel) mattermost)
                                        (let $temp (cut) (py-call (mattermost.send_message $safemsg)))
                                        (let $temp (cut) (py-call (mock.send_message $safemsg)))))))))) _))
-
-;Search the internet for some information:
-(= (search $msg)
-   (py-call (websearch.search $msg)))
