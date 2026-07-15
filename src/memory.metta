@@ -52,7 +52,7 @@
          (library OmegaClaw-Core ./memory/history.metta)
      (progn
          (if (exists-file $history_file)
-            EMPTY
+            ()
             (write-file $history_file ""))
          (append-file $history_file (swrite $addition)))))
 
