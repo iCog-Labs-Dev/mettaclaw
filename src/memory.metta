@@ -16,22 +16,13 @@
               (py-call (lib_llm_ext.initLocalEmbedding)) _)))
 
 (= (getPrompt $provider)
-   (let $model_prompt
-         (library OmegaClaw-Core (py-str ("./memory/prompt_" $provider ".txt")))
+   (let $model_prompt (library OmegaClaw-Core (py-str ("./memory/prompt_" $provider ".txt")))
      (if (exists-file $model_prompt)
-         (read-file $model_prompt)
-         (let $default_prompt ;Safely read the default prompt. Return an empty string if the file does not exist.
-               (library OmegaClaw-Core ./memory/prompt.txt)
-           (if (exists-file $default_prompt)
-               (read-file $default_prompt)
-               "")))))
+       (read-file $model_prompt)
+       (read-file (library OmegaClaw-Core ./memory/prompt.txt)))))
 
 (= (getHistory)
-   (let $history_file
-         (library OmegaClaw-Core ./memory/history.metta)
-     (if (exists-file $history_file) ;Safely read the history. Return an empty string if the file does not exist.
-         (read_file_tail $history_file (maxHistory))
-         "")))
+   (read_file_tail (library OmegaClaw-Core ./memory/history.metta) (maxHistory)))
 
 (= (addToHistory $lastmessage $response $sexpr $msgnew)
    (if $msgnew
@@ -48,13 +39,7 @@
        (useGPTEmbedding (string-safe $str))))
 
 (= (appendToHistory $addition)
-   (let $history_file
-         (library OmegaClaw-Core ./memory/history.metta)
-     (progn
-         (if (exists-file $history_file)
-            ()
-            (write-file $history_file ""))
-         (append-file $history_file (swrite $addition)))))
+   (append-file (library OmegaClaw-Core ./memory/history.metta) (swrite $addition)))
 
 (= (remember $str)
    (progn (py-call (lib_chromadb.remember $str (embed $str) (get_time_as_string)))
