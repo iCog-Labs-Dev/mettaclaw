@@ -14,8 +14,10 @@ mock/test_llm.py
 mock/test_memory_chromadb_mock.py
 mock/test_memory_history_byte_window_truncation_mock.py
 mock/test_memory_history_mock.py
+mock/test_memory_missing_history_file_mock.py
 mock/test_memory_pin_window_visibility_mock.py
 mock/test_pin_invisible_within_iteration_mock.py
+mock/test_prompt_missing_files_mock.py
 mock/test_rpc.py
 mock/test_run_error_script_mock.py
 mock/test_run_repeated_mock.py
