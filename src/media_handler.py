@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _pending_media = None
 _pending_context = None
+_pending_description = {}  # (image_key, query) -> caption marker, per-turn memo
 
 
 def set_pending_media(media):
@@ -32,11 +33,13 @@ def get_pending_context():
 
 
 def clear_pending():
-    """Drop both out-of-band slots once the agent has replied to the user."""
+    """Drop both out-of-band slots and the image-description memo once the
+    agent has replied to the user."""
     global _pending_media, _pending_context
     with _lock:
         _pending_media = None
         _pending_context = None
+        _pending_description.clear()
 
 
 def extract_pdf_text(file_bytes, filename, max_chars=20000):
@@ -126,6 +129,74 @@ PROVIDER_VISION = {
 
 def supports_vision(provider_name):
     return PROVIDER_VISION.get(provider_name, False)
+
+
+import hashlib
+
+VISION_PROMPT = (
+    "Describe this image for a text-only assistant. Report objects, any visible "
+    "text verbatim, layout, and notable details. Be concise and factual."
+)
+
+
+def _image_parts(media):
+    """The image_url parts of a pending-media list (empty if none)."""
+    return [p for p in (media or [])
+            if isinstance(p, dict) and p.get("type") == "image_url"]
+
+
+def _image_key(image_parts):
+    """Cheap identity for the pending image(s) — hash of the data URI(s)."""
+    urls = "".join(
+        (p.get("image_url") or {}).get("url", "") for p in image_parts
+    )
+    return hashlib.sha256(urls.encode("utf-8")).hexdigest()
+
+
+def _call_vision_model(image_parts, prompt, model):
+    """Raw OpenRouter vision chat call. Returns caption text; raises on failure.
+    Isolated so tests can stub it."""
+    import os
+    import openai
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+    client = openai.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+    content = [{"type": "text", "text": prompt}] + image_parts
+    resp = client.chat.completions.create(
+        model=model, messages=[{"role": "user", "content": content}]
+    )
+    return (resp.choices[0].message.content or "").strip()
+
+
+def describe_image(query=""):
+    """MeTTa skill entry point (describe-image): caption the currently-pending
+    image with a vision model so a non-vision agent can 'see' it. Optional
+    `query` focuses the description. Memoized per turn; never raises."""
+    query = (query or "").strip()
+    parts = _image_parts(get_pending_media())
+    if not parts:
+        return "[NO_IMAGE: nothing is attached to describe]"
+
+    key = (_image_key(parts), query)
+    with _lock:
+        cached = _pending_description.get(key)
+    if cached is not None:
+        return cached
+
+    try:
+        import os
+        model = os.environ.get("VISION_MODEL", "google/gemini-2.5-flash")
+        prompt = VISION_PROMPT if not query else f"{VISION_PROMPT} Focus on: {query}"
+        caption = _call_vision_model(parts, prompt, model)
+        result = f"[IMAGE DESCRIPTION]\n{caption}"
+        with _lock:
+            _pending_description[key] = result
+        logger.info(f"Described pending image via {model}: {len(caption)} chars")
+        return result
+    except Exception as e:
+        logger.error(f"Image description failed: {e}")
+        return f"[IMAGE_DESCRIPTION_FAILED: {e}]"
 
 
 def build_multimodal_content(text, media):
@@ -268,3 +339,36 @@ def generate_and_send(prompt):
         logger.error(f"Failed to send generated image: {e}")
         return f"IMAGE_FAILED: generated but could not send: {e}"
     return f"IMAGE_SENT: {prompt}"
+
+
+def test_describe_image():
+    global _call_vision_model
+    # 1. No image pending -> NO_IMAGE marker
+    clear_pending()
+    set_pending_media(None)
+    assert describe_image("anything") == "[NO_IMAGE: nothing is attached to describe]"
+
+    # 2. Memo: second identical call is served from cache (no 2nd API call)
+    calls = {"n": 0}
+    orig = _call_vision_model
+
+    def fake(image_parts, prompt, model):
+        calls["n"] += 1
+        return "a red panda"
+
+    _call_vision_model = fake
+    try:
+        set_pending_media([{"type": "image_url",
+                            "image_url": {"url": "data:image/jpeg;base64,AAAA"}}])
+        r1 = describe_image("")
+        r2 = describe_image("")
+        assert r1 == r2 == "[IMAGE DESCRIPTION]\na red panda", r1
+        assert calls["n"] == 1, calls["n"]
+    finally:
+        _call_vision_model = orig
+        clear_pending()
+    print("test_describe_image passed")
+
+
+if __name__ == "__main__":
+    test_describe_image()
