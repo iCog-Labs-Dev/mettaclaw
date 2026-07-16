@@ -245,6 +245,8 @@ def _choose_provider():
         ]
         provider, embeddingprovider, api_token_var = providers[provider_id]
 
+        token = _prompt_llm_token()
+
         model = ""
         c = input(f"Enter LLM model (default depends on provider): ").strip()
         if c != "":
@@ -259,7 +261,7 @@ def _choose_provider():
                 openaiapi_url = c
             print(f"LLM API URL is set to {openaiapi_url}")
 
-        return provider, embeddingprovider, api_token_var, model, openaiapi_url
+        return provider, embeddingprovider, api_token_var, model, openaiapi_url, token
 
 
 def _choose_import_kb():
@@ -305,8 +307,7 @@ def config_run_omegaclaw(config_output_path):
     require_license_acceptance()
 
     channel_config = _choose_channel()
-    provider, embeddingprovider, api_token_var, model, openaiapi_url = _choose_provider()
-    token = _prompt_llm_token()
+    provider, embeddingprovider, api_token_var, model, openaiapi_url, token = _choose_provider()
     import_kb_on_start = _choose_import_kb()
 
     with open(config_output_path, "w", encoding="utf-8") as f:
