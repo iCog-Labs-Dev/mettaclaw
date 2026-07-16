@@ -29,33 +29,15 @@ GIT_CREDENTIALS_PATH = "/etc/git-credentials"
 
 
 def dexec(*args):
-    """
-    Executes a command inside the Docker container as the default user.
-    Prints the command being executed and explicitly logs any standard error (stderr)
-    to the console. This helps surface hidden failures (like missing commands or 
-    runtime crashes) immediately during test execution.
-    """
     cmd = ["docker", "exec", CONTAINER, *args]
     print(f"       $ {' '.join(cmd)}", flush=True)
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.stderr:
-        print(f"[ERROR]:\n{result.stderr}", flush=True)
-    return result
+    return subprocess.run(cmd, capture_output=True, text=True)
 
 
 def dexec_root(*args):
-    """
-    Executes a command inside the Docker container as the 'root' user.
-    Prints the command being executed and explicitly logs any standard error (stderr)
-    to the console. This helps surface hidden failures (like missing commands or 
-    runtime crashes) immediately during test execution.
-    """
     cmd = ["docker", "exec", "-u", "root", CONTAINER, *args]
     print(f"       $ {' '.join(cmd)}", flush=True)
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.stderr:
-        print(f"[ERROR]:\n{result.stderr}", flush=True)
-    return result
+    return subprocess.run(cmd, capture_output=True, text=True)
 
 
 IRC_RETRIES = 3
