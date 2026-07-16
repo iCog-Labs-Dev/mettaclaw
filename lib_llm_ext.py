@@ -81,6 +81,10 @@ def _media_unsupported_note(text: str) -> str:
     return (text or "") + "\n[Note: an image was attached but the current model does not support vision]"
 
 
+def _media_describe_hint(text: str) -> str:
+    return (text or "") + "\n[An image is attached — use the describe-image skill to read its contents]"
+
+
 def _build_user_content_with_media(provider_name: str, usermsg: str, media=None):
     """
     Preserve the second file's multimodal behavior while keeping system/user
@@ -97,7 +101,7 @@ def _build_user_content_with_media(provider_name: str, usermsg: str, media=None)
         except Exception:
             logger.exception("Failed to build multimodal content for provider=%s", provider_name)
 
-    return _media_unsupported_note(usermsg)
+    return _media_describe_hint(usermsg)
 
 
 def _to_openai_responses_input(provider_name: str, usermsg: str, media=None):
@@ -539,3 +543,16 @@ def useLocalEmbedding(atom):
     if _embedding_model is None:
         raise RuntimeError("Call initLocalEmbedding() first.")
     return _embedding_model.encode(atom, normalize_embeddings=True).tolist()
+
+
+def test_pointer_note():
+    media = [{"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}}]
+    out = _build_user_content_with_media("OpenRouter", "hi", media)
+    assert out == "hi\n[An image is attached — use the describe-image skill to read its contents]", out
+    # No media -> untouched
+    assert _build_user_content_with_media("OpenRouter", "hi", None) == "hi"
+    print("test_pointer_note passed")
+
+
+if __name__ == "__main__":
+    test_pointer_note()
