@@ -11,7 +11,7 @@
     "- Append line to file: append-file filename string",
     ;COMMUNICATION CHANNELS:
     "- Send message to user: send string"
-    "- Search the web: search string"
+    "- Search the web: websearch string"
     "- Generate an image and send it to the user. Use when the user asks you to create, draw, generate, paint, or show a picture or image. Pass a vivid, detailed English description; the image is generated and sent for you, so do not use it for ordinary text replies (example: generate-image a red panda astronaut floating in space, studio lighting): generate-image description"
     "- Search the web using the Tavily Search Agent: tavily-search string"
     "- Get technical analysis for a stock ticker using the Technical Analysis Agent: technical-analysis ticker"
@@ -62,3 +62,7 @@
 
 (= (pin $x)
    PIN-SUCCESS)
+
+;Search the internet for some information:
+(= (websearch $msg)
+   (py-call (websearch.search $msg)))
