@@ -98,10 +98,12 @@ def _build_user_content_with_media(provider_name: str, usermsg: str, media=None)
         try:
             if supports_vision(provider_name):
                 return build_multimodal_content(usermsg, media)
+            # Provider is known and non-vision: point the agent at describe-image.
+            return _media_describe_hint(usermsg)
         except Exception:
             logger.exception("Failed to build multimodal content for provider=%s", provider_name)
 
-    return _media_describe_hint(usermsg)
+    return _media_unsupported_note(usermsg)
 
 
 def _to_openai_responses_input(provider_name: str, usermsg: str, media=None):
@@ -551,6 +553,23 @@ def test_pointer_note():
     assert out == "hi\n[An image is attached — use the describe-image skill to read its contents]", out
     # No media -> untouched
     assert _build_user_content_with_media("OpenRouter", "hi", None) == "hi"
+
+    global _get_media_helpers
+    original_get_media_helpers = _get_media_helpers
+    expected_unsupported = _media_unsupported_note("hi")
+    try:
+        # Case A: vision-capable provider whose build_multimodal_content raises.
+        def _raising_build(usermsg, media):
+            raise RuntimeError("boom")
+        _get_media_helpers = lambda: (lambda name: True, _raising_build)
+        assert _build_user_content_with_media("SomeVision", "hi", media) == expected_unsupported
+
+        # Case B: media_handler absent (text-only deployment).
+        _get_media_helpers = lambda: (None, None)
+        assert _build_user_content_with_media("SomeVision", "hi", media) == expected_unsupported
+    finally:
+        _get_media_helpers = original_get_media_helpers
+
     print("test_pointer_note passed")
 
 
