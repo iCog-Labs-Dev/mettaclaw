@@ -67,11 +67,12 @@ http {
             proxy_http_version 1.1;
         }
 
-        location /ollama-local/ {
-            proxy_pass http://localhost:11434/v1/;
-            proxy_set_header Authorization "Bearer ${OLLAMA_API_KEY}";
-            proxy_set_header Host localhost;
+        location /openaiapi/ {
+            proxy_pass ${OPENAIAPI_URL};
+            proxy_set_header Authorization "Bearer ${OPENAIAPI_API_KEY}";
             proxy_set_header Content-Type $content_type;
+            proxy_ssl_server_name on;
+            proxy_ssl_protocols TLSv1.2 TLSv1.3;
             proxy_http_version 1.1;
         }
 
@@ -102,7 +103,7 @@ http {
         # on the WebSocket upgrade matches its SiteURL / AllowCorsFrom — the
         # agent's auto-derived Origin (http://gateway:8080) is not trusted.
         location /mattermost/ {
-            proxy_pass ${MM_UPSTREAM_URL}/;
+            proxy_pass ${MM_URL};
             proxy_set_header Authorization "Bearer ${MM_BOT_TOKEN}";
             proxy_set_header Host $proxy_host;
             proxy_set_header Origin "${MM_UPSTREAM_URL}";
