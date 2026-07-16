@@ -32,6 +32,10 @@
   loader: python
   location: "{REPO}/channels"
 
+- name: wschat
+  loader: python
+  location: "{REPO}/channels"
+
 - name: openaiapi
   loader: python
   location: "{REPO}/providers"

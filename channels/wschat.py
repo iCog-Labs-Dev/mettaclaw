@@ -69,7 +69,10 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from src.logger import get_logger
-import src.pluginapi as plugin
+try:
+    import pluginapi as plugin
+except ModuleNotFoundError:
+    import src.pluginapi as plugin
 
 logger = get_logger(__name__)
 
@@ -330,3 +333,22 @@ def send_message(text):
         logger.exception(f"Send failed, buffering for reconnect: {exc}")
         with _msg_lock:
             _outbox.append(payload)
+
+
+class WSChannel(plugin.CommChannel):
+
+    def __init__(self):
+        super().__init__()
+
+    def config(self, config: dict) -> None:
+        start_websocket(config.get("WS_URL", ""), config.get("WS_TOKEN", ""))
+
+    def receive(self) -> str:
+        return getLastMessage()
+
+    def send(self, message: str) -> None:
+        send_message(message)
+
+
+def loadOmegaClawPlugin():
+    plugin.registerCommChannel("websocket", WSChannel())
