@@ -62,7 +62,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: IMAGE,ASI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,OPENROUTER_API_KEY,BOT_TOKEN,CHAT_ID,LLM_PROVIDER,LLM_MODEL
+          envs: IMAGE,GHCR_USER,GHCR_TOKEN,ASI_API_KEY,OPENAI_API_KEY,ANTHROPIC_API_KEY,OPENROUTER_API_KEY,BOT_TOKEN,CHAT_ID,LLM_PROVIDER,LLM_MODEL
           script: |
             set -e
             mkdir -p /omegaclaw
@@ -80,6 +80,7 @@ jobs:
 
             mkdir -p /Backup/docker/PeTTa
 
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
             docker pull "${IMAGE}"
             docker rm -f omegaclaw 2>/dev/null || true
 
@@ -108,6 +109,8 @@ jobs:
               embeddingprovider=OpenAI
         env:
           IMAGE: ${{ needs.prep.outputs.image }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ASI_API_KEY: ${{ env.ASI_API_KEY }}
           OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_API_KEY }}
