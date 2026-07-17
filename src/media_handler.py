@@ -1,19 +1,41 @@
 import base64
 import threading
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
+
+# This module is reached under two import names: `media_handler` (MeTTa py-calls
+# in skills.metta, e.g. describe-image / generate-image) and `src.media_handler`
+# (tg_channel, lib_llm_ext). Without this, each name gets its OWN module object
+# with separate globals, so pending media set via one name is invisible to
+# describe_image called via the other. Alias them to a single instance.
+_self = sys.modules[__name__]
+sys.modules.setdefault("media_handler", _self)
+sys.modules.setdefault("src.media_handler", _self)
 
 _lock = threading.Lock()
 _pending_media = None
 _pending_context = None
+_describe_media = None  # image kept for describe-image; survives a reply's clear_pending()
 _pending_description = {}  # (image_key, query) -> caption marker, per-turn memo
 
 
 def set_pending_media(media):
-    global _pending_media
+    global _pending_media, _describe_media
     with _lock:
         _pending_media = media
+        imgs = _image_parts(media)
+        if imgs:
+            # New image arrived: keep an independent copy for describe-image so a
+            # reply's clear_pending() can't blind it mid-turn, and drop stale captions.
+            _describe_media = media
+            _pending_description.clear()
+            logger.info("[IMGDBG] pending media set: %d image part(s)", len(imgs))
+        elif media is None:
+            # A new non-image message was consumed -> the prior image is now stale.
+            _describe_media = None
+    # ponytail: describe source holds one base64 image until the next message; bounded, overwritten.
 
 
 def get_pending_media():
@@ -37,9 +59,12 @@ def clear_pending():
     agent has replied to the user."""
     global _pending_media, _pending_context
     with _lock:
+        had = bool(_pending_media) or bool(_pending_context)
         _pending_media = None
         _pending_context = None
         _pending_description.clear()
+    if had:
+        logger.info("[IMGDBG] clear_pending: dropped main media/context (describe source kept)")
 
 
 def extract_pdf_text(file_bytes, filename, max_chars=20000):
@@ -154,14 +179,15 @@ def _image_key(image_parts):
 
 
 def _call_vision_model(image_parts, prompt, model):
-    """Raw OpenRouter vision chat call. Returns caption text; raises on failure.
-    Isolated so tests can stub it."""
+    """Raw vision chat call via Anthropic's OpenAI-compatible endpoint (the main
+    agent stays on its own provider; only image reads go to Claude). Returns
+    caption text; raises on failure. Isolated so tests can stub it."""
     import os
     import openai
-    api_key = os.environ.get("OPENROUTER_API_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is not set")
-    client = openai.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
+    client = openai.OpenAI(api_key=api_key, base_url="https://api.anthropic.com/v1/")
     content = [{"type": "text", "text": prompt}] + image_parts
     resp = client.chat.completions.create(
         model=model, messages=[{"role": "user", "content": content}]
@@ -174,8 +200,11 @@ def describe_image(query=""):
     image with a vision model so a non-vision agent can 'see' it. Optional
     `query` focuses the description. Memoized per turn; never raises."""
     query = (query or "").strip()
-    parts = _image_parts(get_pending_media())
+    with _lock:
+        source = _pending_media if _image_parts(_pending_media) else _describe_media
+    parts = _image_parts(source)
     if not parts:
+        logger.info("[IMGDBG] describe_image: no pending image available")
         return "[NO_IMAGE: nothing is attached to describe]"
 
     key = (_image_key(parts), query)
@@ -186,7 +215,7 @@ def describe_image(query=""):
 
     try:
         import os
-        model = os.environ.get("VISION_MODEL", "google/gemini-2.5-flash")
+        model = os.environ.get("VISION_MODEL", "claude-haiku-4-5")
         prompt = VISION_PROMPT if not query else f"{VISION_PROMPT} Focus on: {query}"
         caption = _call_vision_model(parts, prompt, model)
         result = f"[IMAGE DESCRIPTION]\n{caption}"
@@ -364,9 +393,17 @@ def test_describe_image():
         r2 = describe_image("")
         assert r1 == r2 == "[IMAGE DESCRIPTION]\na red panda", r1
         assert calls["n"] == 1, calls["n"]
+
+        # 3. Race fix: a reply's clear_pending() must NOT blind describe-image.
+        #    The image stays describable until a new (non-image) message arrives.
+        clear_pending()  # simulates send_message() replying to the user
+        assert describe_image("") == "[IMAGE DESCRIPTION]\na red panda"
+        set_pending_media(None)  # a new text message is consumed -> image now stale
+        assert describe_image("") == "[NO_IMAGE: nothing is attached to describe]"
     finally:
         _call_vision_model = orig
         clear_pending()
+        set_pending_media(None)
     print("test_describe_image passed")
 
 

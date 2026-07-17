@@ -504,6 +504,7 @@ class _TelegramChannel:
         display_text = f"{name}: {caption}" if caption else f"{name}: [image]"
         with self.msg_lock:
             self._message_queue.append((chat_id, display_text, message.message_id, pending_media))
+        logging.info("[IMGDBG] queued photo from %s chat=%s bytes=%d caption=%s", name, chat_id, len(image_bytes), bool(caption))
 
     async def _on_document(self, message: types.Message):
         """Handle document (file) messages — PDF only."""

@@ -97,8 +97,10 @@ def _build_user_content_with_media(provider_name: str, usermsg: str, media=None)
     if supports_vision and build_multimodal_content:
         try:
             if supports_vision(provider_name):
+                logger.info("[IMGDBG] attaching %d media part(s) to %s (vision)", len(media), provider_name)
                 return build_multimodal_content(usermsg, media)
             # Provider is known and non-vision: point the agent at describe-image.
+            logger.info("[IMGDBG] provider %s non-vision: dropping media, hinting describe-image", provider_name)
             return _media_describe_hint(usermsg)
         except Exception:
             logger.exception("Failed to build multimodal content for provider=%s", provider_name)
