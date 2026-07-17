@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 from ddgs import DDGS
 
-from src.logger import get_logger
+try:
+    from src.logger import get_logger
+except ModuleNotFoundError:  # imported directly with src/ on the path
+    from logger import get_logger
 
 logger = get_logger(__name__)
 
