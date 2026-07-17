@@ -20,7 +20,7 @@ def apply_security_policy(path):
         logger.exception(f"Unexpected exception: {e}")
         raise
 
-def get_allowed_policy_paths(path) -> dict[str, list[str]] | str:
+def get_allowed_policy_paths(path) -> str:
     """
     Retrieves and serializes the allowed filesystem paths from the security policy.
 
