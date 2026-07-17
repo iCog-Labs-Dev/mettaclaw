@@ -210,7 +210,8 @@ def start_telegram(chat_id="", poll_timeout=20):
 
     try:
         _poll_timeout = max(1, int(poll_timeout))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Invalid poll_timeout {poll_timeout!r}, falling back to 20: {e}")
         _poll_timeout = 20
 
     _offset = None
