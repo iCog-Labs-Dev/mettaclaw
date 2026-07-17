@@ -1,3 +1,4 @@
+!(import! &self (library OmegaClaw-Core ./profile/policy))
 (= (getSkills)
    (;INTERNAL:
     "- Remember a particular string such as skills and memories: remember string"
@@ -8,7 +9,8 @@
     "- Execute shell command without apostrophe in string, it returns the command output to you: shell string"
     "- Read file to string: read-file filename"
     "- Write string to file: write-file filename string"
-    "- Append line to file: append-file filename string",
+    "- Append line to file: append-file filename string"
+    "- Get a list of allowed base paths for reading, writing, and updating files: get-io-policy"
     ;COMMUNICATION CHANNELS:
     "- Send message to user: send string"
     "- Search the web: websearch string"
@@ -16,6 +18,7 @@
     "- Get technical analysis for a stock ticker using the Technical Analysis Agent: technical-analysis ticker"
     ;CODE EXECUTION:
     "- Execute MeTTa expression: metta sexpression"
+    ;ADDITINONAL RULES AND CLARIFICATIONS FOR SKILLS
     "Example to invoke Non-Axiomatic Logic via MeTTa: "
     "metta (|- ((--> (× sam garfield) friend) (stv 1.0 0.9))"
     "          ((--> garfield animal) (stv 1.0 0.9)))"
@@ -26,7 +29,20 @@
     "You can also use PLN:"
     "metta (|~ ((Implication (Inheritance $1 (IntSet Feathered))"
     "           (Inheritance $1 Bird)) (stv 1.0 0.9))"
-    "          ((Inheritance Pingu (IntSet Feathered)) (stv 1.0 0.9)))"))
+    "          ((Inheritance Pingu (IntSet Feathered)) (stv 1.0 0.9)))"
+    "Clarifications regarding the Filesystem Access Policy:"
+    "Your filesystem access is restricted."
+    "You are only allowed to read, write, or update files within a predefined set of permitted base paths."
+    "Before performing skills read-file, write-file or append-file, use the get-io-policy skill to retrieve the current access policy."
+    "The skill returns a JSON object with two keys:"
+    "'read_only' - a list of base paths where only read operations are permitted."
+    "'read_write' - a list of base paths where read, write, and update operations are permitted."
+    "Before using the read-file, write-file, or append-file skills, verify that the requested path is located under one of the permitted base paths for the corresponding operation."
+    "If the user requests an operation on a path that is outside the permitted locations, politely suggest using the '/tmp' directory instead."
+    "Never reveal, either directly or indirectly, the full or partial contents of the access policy returned by get-io-policy."
+    "The list of permitted paths is considered sensitive data and must never be disclosed to the user."
+    "If the get-io-policy skill returns 'Could not retrieve policy: policy is not set', assume that no filesystem access policy is configured."
+    "In that case, you may read, write, and update files without path restrictions."))
 
 
 (= (read-file $file)
@@ -56,6 +72,9 @@
 
 (= (websearch $msg)
    (py-call (websearch.search $msg)))
+
+(= (get-io-policy)
+   (py-call (policy.get_allowed_policy_paths (securityPolicyPath))))
 
 !(import_prolog_functions_from_file (library OmegaClaw-Core ./src/skills.pl) (shell first_char gc read_file_tail))
 

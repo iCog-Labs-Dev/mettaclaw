@@ -1,6 +1,7 @@
 import os
 import enum
 import yaml
+import json
 from py_landlock import Landlock, AccessFs
 from pathlib import Path
 from src.logger import get_logger
@@ -18,6 +19,42 @@ def apply_security_policy(path):
     except Exception as e:
         logger.exception(f"Unexpected exception: {e}")
         raise
+
+def get_allowed_policy_paths(path) -> dict[str, list[str]] | str:
+    """
+    Retrieves and serializes the allowed filesystem paths from the security policy.
+
+    This function is exposed to the agent as a skill (`get-io-policy`). It reads the 
+    Landlock security policy configuration and returns the permitted base paths 
+    for read-only and read-write operations in JSON format. This allows the LLM 
+    to proactively check path permissions before attempting File I/O operations.
+
+    Args:
+        path (str | Any): The file path to the security policy YAML file. 
+                          Can be a raw string or a MeTTa symbol (which will be parsed to a string).
+
+    Returns:
+        str: A JSON-formatted string containing two keys: 'read_only' and 'read_write', 
+             with lists of allowed directory paths.
+             If the path is missing or an error occurs, returns a descriptive error string.
+    """
+    try:
+        path = str(path or "").strip().strip('"')
+        if path:
+            policy = FileSystemPolicy()
+            policy.load_file(path)
+            return json.dumps({
+                'read_only': [str(p) for p in policy._read_only],
+                'read_write': [str(p) for p in policy._read_write]
+            })
+        else:
+            logger.warning("SecurityPolicyPath is not set")
+            return "Could not retrieve policy: policy is not set"
+    except Exception as e:
+        logger.error(
+            f"Could not retrieve a policy due to unexpected exception: {e}"
+        )
+        return "Could not retrieve a policy: unexpected exception"
 
 class LandLockCompatibility(enum.Enum):
     BEST_EFFORT = 0
