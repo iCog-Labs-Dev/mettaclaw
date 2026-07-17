@@ -6,7 +6,6 @@ get-io-policy skill without crashing and can process the returned JSON.
 
 pytest test_io_policy_skill_mock.py -s
 """
-import re
 import json
 import yaml
 from helpers import Checker, dexec, make_prompt, wait_for_skill_call
