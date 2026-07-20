@@ -653,30 +653,22 @@
             $frameID)
     (if (== $currentID $frameID) True False))
 
+(= (cfv2-check-frame-id (FrameRef (frameID $currentID) $parentFrameID $space
+            $source $priority (status $refStatus) $frameMode
+            $summary $createdAt $updatedAt $completedTimestamp)
+            $frameID)
+    (if (== $currentID $frameID) True False))
+
 ;; A more generic approach as an alternative for cfv2-frame-by-id and cfv2_latest_frame_by_id
 (= (cfv2-get-frame $frameID $space)
     (car-atom (filter-atom (get-state $space) $frame
         (== (cfv2-check-frame-id $frame $frameID) True))))
 
-;; Removes a frame from a frame space by the given ID 
-;; -> returns a list of frames without the frame with the given ID.
-;; TODO: it doesn't match the FrameRef structure. thus it won't remove the frame ref from the frame index space.
+;; Removes a frame or frame ref from a space by the given ID.
+;; Works for both Frame and FrameRef atoms via cfv2-check-frame-id pattern dispatch.
 (= (cfv2-remove-frame $frameID $frameSpace)
     (filter-atom (get-state $frameSpace) $frame
         (not (== (cfv2-check-frame-id $frame $frameID) True))))
-
-;; Checks whether a FrameRef's frameID matches the given $frameID.
-;; FrameRef stores frameID as a named field (frameID ...) in first position.
-(= (cfv2-check-ref-id (FrameRef (frameID $currentID) $parentFrameID $space
-                $source $priority (status $refStatus) $frameMode
-                $summary $createdAt $updatedAt $completedTimestamp)
-                $frameID)
-    (if (== $currentID $frameID) True False))
-
-;; Removes a FrameRef from the frame-indexspace by the given frameID.
-(= (cfv2-remove-frame-ref $frameID $frameSpace)
-    (filter-atom (get-state $frameSpace) $ref
-        (not (== (cfv2-check-ref-id $ref $frameID) True))))
 
 (= (cfv2-select-next-frame)
    (let $nextID
@@ -750,7 +742,7 @@
              (pin $memory)
              (cfv2-mark-current-frame-completed $summary)
              (change-state! &cfv2-active-framespace (cfv2-remove-frame (cfv2-root-current-frame-id) &cfv2-active-framespace))
-             (change-state! &cfv2-frame-indexspace (cfv2-remove-frame-ref (cfv2-root-current-frame-id) &cfv2-frame-indexspace))
+             (change-state! &cfv2-frame-indexspace (cfv2-remove-frame (cfv2-root-current-frame-id) &cfv2-frame-indexspace))
              (cfv2-snapshot-current-frame Completed (cfv2-current-cache-to-frame))
              (cfv2-index-current-frame () Completed)
              (cfv2-clear-current-frame-cache)
@@ -767,7 +759,7 @@
              (cfv2-snapshot-current-frame Completed (cfv2-current-cache-to-frame))
              (cfv2-index-current-frame () Completed)
              (change-state! &cfv2-active-framespace (cfv2-remove-frame (cfv2-root-current-frame-id) &cfv2-active-framespace))
-             (change-state! &cfv2-frame-indexspace (cfv2-remove-frame-ref (cfv2-root-current-frame-id) &cfv2-frame-indexspace))
+             (change-state! &cfv2-frame-indexspace (cfv2-remove-frame (cfv2-root-current-frame-id) &cfv2-frame-indexspace))
              (cfv2-clear-current-frame-cache)
              (cfv2-select-next-frame)
              FRAME-COMPLETED-STORED-LTM))))

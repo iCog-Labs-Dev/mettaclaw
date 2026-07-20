@@ -93,7 +93,6 @@
                        _)))
              ($msg (get-state &prevmsg))
 
-             ; Capture whether a frame was already active before ingesting new input.
              ($hadActiveFrame (if (and $msgnew (== (useFrames) True)) (cfv2-has-current-frame) False))
 
              ; New input becomes frame state before prompting.
@@ -115,8 +114,8 @@
              (let* (($lastmessage
                        (if (== (useFrames) True)
                            (if $msgnew
-                               ; Case 1: new input, no prior active frame — clean start.
-                               ; Case 2: new input, a frame was already active — may need to switch.
+                               ; Case 1: new input, a frame was already active — may need to switch.
+                               ; Case 2: new input, no prior active frame — clean start.
                                (if $hadActiveFrame
                                    "NEW_INPUT_HAS_BEEN_ADMITTED_AS_ACTIVE_FRAME. Continue current frame or switch-frame to a higher-priority admitted frame if appropriate."
                                    "NEW_INPUT_HAS_BEEN_ADMITTED_AS_ACTIVE_FRAME.")
