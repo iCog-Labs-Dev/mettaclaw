@@ -67,3 +67,6 @@
         (if (== $res ())
             $default
             (car-atom $res))))
+
+(= (command-line)
+   (collapse (argv $_)))

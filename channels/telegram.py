@@ -6,6 +6,7 @@ import urllib.parse
 import urllib.request
 import auth
 from src.logger import get_logger
+import pluginapi as plugin
 
 logger = get_logger(__name__)
 
@@ -254,3 +255,22 @@ def send_message(text):
         except Exception as exc:
             logger.exception(f"Send failed: {exc}")
             return
+
+class TelegramChannel(plugin.CommChannel):
+
+    def __init__(self):
+        super().__init__()
+
+    def config(self, config: dict) -> None:
+        chat_id = config.get("TG_CHAT_ID", "")
+        poll_timeout = int(config.get("TG_POLL_TIMEOUT", 20))
+        start_telegram(chat_id, poll_timeout)
+
+    def receive(self) -> str:
+        return getLastMessage()
+
+    def send(self, message: str) -> None:
+        send_message(message)
+
+def loadOmegaClawPlugin():
+    plugin.registerCommChannel("telegram", TelegramChannel())
