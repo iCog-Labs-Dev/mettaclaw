@@ -440,6 +440,7 @@ _register_provider(name="Ollama-local", var_name="OLLAMA_API_KEY", model_name="q
 _register_provider_instance(AsiOneProvider(name="ASIOne", var_name="ASIONE_API_KEY", model_name="asi1-ultra", base_url="https://api.asi1.ai/v1"))
 _register_provider_instance(OpenRouterProvider(name="OpenRouter", var_name="OPENROUTER_API_KEY", model_name="z-ai/glm-5.2", base_url="https://openrouter.ai/api/v1"))
 _register_provider_instance(OpenRouterProvider(name="MiniMaxM3", var_name="OPENROUTER_API_KEY", model_name="minimax/minimax-m3", base_url="https://openrouter.ai/api/v1"))
+_register_provider_instance(OpenRouterProvider(name="OpenRouterVision", var_name="OPENROUTER_API_KEY", model_name=os.environ.get("VISION_MODEL", "anthropic/claude-haiku-4.5"), base_url="https://openrouter.ai/api/v1"))
 _register_provider_instance(TestProvider())
 _register_provider_instance(OpenAIProvider(name="OpenAI", var_name="OPENAI_API_KEY", model_name="gpt-5.5", base_url="https://api.openai.com/v1"))
 

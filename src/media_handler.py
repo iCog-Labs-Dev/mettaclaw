@@ -145,6 +145,7 @@ def image_to_data_uri(file_bytes, mime_type):
 PROVIDER_VISION = {
     "Anthropic": True,
     "OpenAI": True,
+    "OpenRouterVision": True,
     "OpenRouter": False,
     "ASIOne": False,
     "ASICloud": False,
@@ -178,21 +179,19 @@ def _image_key(image_parts):
     return hashlib.sha256(urls.encode("utf-8")).hexdigest()
 
 
-def _call_vision_model(image_parts, prompt, model):
-    """Raw vision chat call via Anthropic's OpenAI-compatible endpoint (the main
-    agent stays on its own provider; only image reads go to Claude). Returns
-    caption text; raises on failure. Isolated so tests can stub it."""
-    import os
-    import openai
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set")
-    client = openai.OpenAI(api_key=api_key, base_url="https://api.anthropic.com/v1/")
-    content = [{"type": "text", "text": prompt}] + image_parts
-    resp = client.chat.completions.create(
-        model=model, messages=[{"role": "user", "content": content}]
-    )
-    return (resp.choices[0].message.content or "").strip()
+def _call_vision_model(image_parts, prompt):
+    """Vision chat call routed through the OpenRouterVision provider in lib_llm_ext
+    (the main agent stays on its own provider; only image reads go here). The vision
+    model is configured there via VISION_MODEL. Returns caption text; raises on
+    failure. Isolated so tests can stub it."""
+    from lib_llm_ext import _get_provider
+    provider = _get_provider("OpenRouterVision")
+    if not provider or not provider.is_available:
+        raise RuntimeError("OpenRouterVision not available (set OPENROUTER_API_KEY)")
+    caption = (provider.chat(content=prompt, media=image_parts) or "").strip()
+    if not caption:
+        raise RuntimeError("empty caption from vision provider")
+    return caption
 
 
 def describe_image(query=""):
@@ -214,14 +213,12 @@ def describe_image(query=""):
         return cached
 
     try:
-        import os
-        model = os.environ.get("VISION_MODEL", "claude-haiku-4-5")
         prompt = VISION_PROMPT if not query else f"{VISION_PROMPT} Focus on: {query}"
-        caption = _call_vision_model(parts, prompt, model)
+        caption = _call_vision_model(parts, prompt)
         result = f"[IMAGE DESCRIPTION]\n{caption}"
         with _lock:
             _pending_description[key] = result
-        logger.info(f"Described pending image via {model}: {len(caption)} chars")
+        logger.info(f"Described pending image: {len(caption)} chars")
         return result
     except Exception as e:
         logger.error(f"Image description failed: {e}")
@@ -381,7 +378,7 @@ def test_describe_image():
     calls = {"n": 0}
     orig = _call_vision_model
 
-    def fake(image_parts, prompt, model):
+    def fake(image_parts, prompt):
         calls["n"] += 1
         return "a red panda"
 
