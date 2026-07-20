@@ -1,4 +1,3 @@
-!(import! &self (library OmegaClaw-Core ./profile/policy))
 (= (getSkills)
    (;INTERNAL:
     "- Remember a particular string such as skills and memories: remember string"
