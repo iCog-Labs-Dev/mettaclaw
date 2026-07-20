@@ -198,16 +198,16 @@
         (let*
             (
                ; ($_ (println! $frame))
-               ((Frame $frameID' $parentFrameID $source $priority $goalNamespace $status $frameMode $hypotheses $method (history-summary $historySummary)
+               ((Frame $frameID' $parentFrameID $source $priority $goalNamespace (status $statusValue) $frameMode $hypotheses $method (history-summary $historySummary)
                      $modules $budget $constraints $deliverables $subFrameNamespace $results $createdAt $updatedAt $completedTimestamp $completedSummary)
                   (cfv2-get-frame $currentFrameID $space))
 
-               ($_ (println! ("Creating frame reference for frameID: " $frameID " in space: " $space)))
+               ($_ (println! ("Creating frame reference for frameID: " $currentFrameID " in space: " $space)))
 
             )
             (FrameRef
                 (frameID $currentFrameID) $parentFrameID (space (if (== $space &cfv2-completed-framespace) Completed Active)) $source
-                $priority $status $frameMode
+                $priority (status $statusValue) $frameMode
                 (summary (cfv2-compact-limited $historySummary (cfv2PayloadLimit)))
                 $createdAt $updatedAt $completedTimestamp))))
 
@@ -574,6 +574,7 @@
 ;; Update: the current frame is now snapshoted and relational composition is done before switching to the new frame.
 (= (cfv2-load-frame $currentframeID)
     (let* (
+            ($frameIDAtom (if (== (get-metatype $currentframeID) Grounded) (sread $currentframeID) $currentframeID))
             ((Frame (frameID $frameID) (parent-frameID $parentID) (source $source)
                 (priority $priority) (goal-namespace $goalSpace) (status $status)
                 (frame-mode $mode) (hypotheses $hypotheses) (method $methods)
@@ -583,9 +584,9 @@
                 (created-at $createdAt) (updated-at $updatedAt) (completed-timestamp $completedTimestamp)
                 (completed-summary $completedSummary)) 
 
-               (cfv2-get-frame $currentframeID &cfv2-active-framespace))
+               (cfv2-get-frame $frameIDAtom &cfv2-active-framespace))
             
-            ($relation (collapse (cfv2-get-relation $currentframeID)))
+            ($relation (collapse (cfv2-get-relation $frameIDAtom)))
             )
 
         (if (== $mode (cfv2-root-mode))
@@ -593,7 +594,7 @@
                ;; Safe offloading frames back to active space when switching frames before they are completed.
                (if  (== () (get-state &cfv2-current-frame-id)) NEW-FRAME-SWITCHING (cfv2-add-and-remove (get-state &cfv2-current-frame-id) (cfv2-current-frame) &cfv2-active-framespace))
 
-               (change-state! &cfv2-current-frame-id $currentframeID)
+               (change-state! &cfv2-current-frame-id $frameIDAtom)
                (change-state! &cfv2-current-parent-frame-id $parentID)
                (change-state! &cfv2-current-source $source)
                (change-state! &cfv2-current-priority $priority)
@@ -652,14 +653,19 @@
             $frameID)
     (if (== $currentID $frameID) True False))
 
+(= (cfv2-check-frame-id (FrameRef (frameID $currentID) $parentFrameID $space
+            $source $priority (status $refStatus) $frameMode
+            $summary $createdAt $updatedAt $completedTimestamp)
+            $frameID)
+    (if (== $currentID $frameID) True False))
+
 ;; A more generic approach as an alternative for cfv2-frame-by-id and cfv2_latest_frame_by_id
 (= (cfv2-get-frame $frameID $space)
     (car-atom (filter-atom (get-state $space) $frame
         (== (cfv2-check-frame-id $frame $frameID) True))))
 
-;; Removes a frame from a frame space by the given ID 
-;; -> returns a list of frames without the frame with the given ID.
-;; TODO: it doesn't match the FrameRef structure. thus it won't remove the frame ref from the frame index space.
+;; Removes a frame or frame ref from a space by the given ID.
+;; Works for both Frame and FrameRef atoms via cfv2-check-frame-id pattern dispatch.
 (= (cfv2-remove-frame $frameID $frameSpace)
     (filter-atom (get-state $frameSpace) $frame
         (not (== (cfv2-check-frame-id $frame $frameID) True))))

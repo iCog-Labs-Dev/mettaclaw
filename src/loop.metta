@@ -93,6 +93,8 @@
                        _)))
              ($msg (get-state &prevmsg))
 
+             ($hadActiveFrame (if (and $msgnew (== (useFrames) True)) (cfv2-has-current-frame) False))
+
              ; New input becomes frame state before prompting.
              ($_ (if (and $msgnew (== (useFrames) True))
                      (ctx-ingest-user-message $msg)
@@ -110,14 +112,19 @@
 
          (if (> (get-state &loops) 0)
              (let* (($lastmessage
-                       (if $msgnew
-                           (if (== (useFrames) True)
-                           "NEW_INPUT_HAS_BEEN_ADMITTED_AS_ACTIVE_FRAME. Continue current frame or switch-frame to a higher-priority admitted frame if appropriate."
-                           ; (HUMAN-MSG: $msg) 
-                           )
-                           (if (and (spamShield) (== (useFrames) True))
-                               "NO_NEW_INPUT. Continue only if the context frame contains an active useful goal or select relevant frame from the active space. If no active frame is relevant, consider switching your mode pursuing frames registered with mode = Slow. DO NOT RE-SEND OR SPAM!"
-                               "DO NOT RE-SEND OR SPAM!")))
+                       (if (== (useFrames) True)
+                           (if $msgnew
+                               ; Case 1: new input, a frame was already active — may need to switch.
+                               ; Case 2: new input, no prior active frame — clean start.
+                               (if $hadActiveFrame
+                                   "NEW_INPUT_HAS_BEEN_ADMITTED_AS_ACTIVE_FRAME. Continue current frame or switch-frame to a higher-priority admitted frame if appropriate."
+                                   "NEW_INPUT_HAS_BEEN_ADMITTED_AS_ACTIVE_FRAME.")
+                               ; Case 3: no new input, current frame is loaded — continue it.
+                               ; Case 4: no new input, no current frame — idle.
+                               (if (cfv2-has-current-frame)
+                                   "NO_NEW_INPUT. Continue only if the context frame contains an active useful goal or select relevant frame from the active space. DO NOT RE-SEND OR SPAM!"
+                                   "NO_NEW_INPUT. No active frame. Consider switching your mode to pursue frames registered with mode = Slow or create a new autonomous goal. DO NOT RE-SEND OR SPAM!"))
+                           "DO NOT RE-SEND OR SPAM!"))
                     ($_ (change-state! &nextWakeAt (+ (get_time) (wakeupInterval))))
                     ($_ (println! $lastmessage))
                     ($send (py-str ($prompt :-:-:-: $lastmessage)))
