@@ -51,7 +51,7 @@ def get_allowed_policy_paths(path) -> str:
             logger.warning("SecurityPolicyPath is not set")
             return "Could not retrieve policy: policy is not set"
     except Exception as e:
-        logger.error(
+        logger.exception(
             f"Could not retrieve a policy due to unexpected exception: {e}"
         )
         return "Could not retrieve a policy: unexpected exception"
