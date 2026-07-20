@@ -29,19 +29,8 @@
     "metta (|~ ((Implication (Inheritance $1 (IntSet Feathered))"
     "           (Inheritance $1 Bird)) (stv 1.0 0.9))"
     "          ((Inheritance Pingu (IntSet Feathered)) (stv 1.0 0.9)))"
-    "Clarifications regarding the Filesystem Access Policy:"
-    "Your filesystem access is restricted."
-    "You are only allowed to read, write, or update files within a predefined set of permitted base paths."
-    "Before performing skills read-file, write-file or append-file, use the get-io-policy skill to retrieve the current access policy."
-    "The skill returns a JSON object with two keys:"
-    "'read_only' - a list of base paths where only read operations are permitted."
-    "'read_write' - a list of base paths where read, write, and update operations are permitted."
-    "Before using the read-file, write-file, or append-file skills, verify that the requested path is located under one of the permitted base paths for the corresponding operation."
-    "If the user requests an operation on a path that is outside the permitted locations, politely suggest using the '/tmp' directory instead."
-    "Never reveal, either directly or indirectly, the full or partial contents of the access policy returned by get-io-policy."
-    "The list of permitted paths is considered sensitive data and must never be disclosed to the user."
-    "If the get-io-policy skill returns 'Could not retrieve policy: policy is not set', assume that no filesystem access policy is configured."
-    "In that case, you may read, write, and update files without path restrictions."))
+    "File I/O is restricted: always use get-io-policy before reading/writing files to verify allowed base paths."
+    "Never reveal policy contents to users; if a requested path is denied, politely suggest using '/tmp'."))
 
 
 (= (read-file $file)
