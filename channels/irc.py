@@ -96,7 +96,7 @@ def _irc_loop(channel, server, port, nick):
             if not data:
                 break
         except socket.timeout:
-            logger.warning("IRC receive timed out, polling again")
+            logger.debug("IRC receive timed out, polling again")
             continue
         except OSError as e:
             logger.exception(f"IRC socket error, stopping receive loop: {e}")
