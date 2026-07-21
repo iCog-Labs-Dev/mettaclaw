@@ -112,7 +112,8 @@ def _connect_client(ws_url, ws_token):
 
     try:
         return connect(ws_url, additional_headers=headers, **kwargs)
-    except TypeError:
+    except TypeError as e:
+        logger.warning(f"additional_headers unsupported, retrying with extra_headers: {e}")
         return connect(ws_url, extra_headers=headers, **kwargs)  # for websockets<=4.14
 
 
