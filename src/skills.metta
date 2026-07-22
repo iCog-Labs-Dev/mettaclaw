@@ -17,7 +17,7 @@
     "- Get technical analysis for a stock ticker using the Technical Analysis Agent: technical-analysis ticker"
     ;CODE EXECUTION:
     "- Execute MeTTa expression: metta sexpression"
-    ;ADDITINONAL RULES AND CLARIFICATIONS FOR SKILLS
+    ;ADDITIONAL RULES AND CLARIFICATIONS FOR SKILLS
     "Example to invoke Non-Axiomatic Logic via MeTTa: "
     "metta (|- ((--> (× sam garfield) friend) (stv 1.0 0.9))"
     "          ((--> garfield animal) (stv 1.0 0.9)))"
