@@ -19,6 +19,34 @@ def test_get_io_policy_mock(llm, comm):
     with Checker("get-io-policy skill mock") as c:
         print(f"\n=== OmegaClaw: get-io-policy mock (run-id {c.run_id}) ===", flush=True)
         
+        ####################################
+        # Phase 1: check isolated skill call
+        ####################################
+        
+        c.step("send prompt to check isolated skill invocation")
+        prompt = make_prompt(c.run_id, "Check your IO policy.")
+        llm.set_answer(
+            request=prompt,
+            response=(
+                f'(send "Checking my io policy {c.run_id}")\n'
+                '(get-io-policy)'
+            )
+        )
+        if not comm.send_message(prompt):
+            c.fail("comm", "could not deliver prompt within timeout")
+            
+        c.step("verify send message does not absorb the skill")
+        send_arg = wait_for_skill_call(c.run_id, "send", timeout=30, arg_substr="Checking my io policy")
+        if not send_arg:
+            c.fail("send", "Agent did not respond to first prompt.")
+        if "get-io-policy" in send_arg:
+            c.fail("parser", f"Bug regression: get-io-policy was absorbed into the send message.")
+        c.ok("parser", "get-io-policy was correctly parsed as a separate command.")
+        
+        ##########################
+        # Phase 2: data validation
+        ##########################
+        
         c.step("send prompt asking to check IO policy")
         prompt = make_prompt(c.run_id, "Retrieve the current filesystem access policy.")
         llm.set_answer(
