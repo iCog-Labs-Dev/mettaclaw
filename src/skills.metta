@@ -8,7 +8,8 @@
     "- Execute shell command without apostrophe in string, it returns the command output to you: shell string"
     "- Read file to string: read-file filename"
     "- Write string to file: write-file filename string"
-    "- Append line to file: append-file filename string",
+    "- Append line to file: append-file filename string"
+    "- Get a list of allowed base paths for reading, writing, and updating files: get-io-policy"
     ;COMMUNICATION CHANNELS:
     "- Send message to user: send string"
     "- Search the web: websearch string"
@@ -16,6 +17,7 @@
     "- Get technical analysis for a stock ticker using the Technical Analysis Agent: technical-analysis ticker"
     ;CODE EXECUTION:
     "- Execute MeTTa expression: metta sexpression"
+    ;ADDITIONAL RULES AND CLARIFICATIONS FOR SKILLS
     "Example to invoke Non-Axiomatic Logic via MeTTa: "
     "metta (|- ((--> (× sam garfield) friend) (stv 1.0 0.9))"
     "          ((--> garfield animal) (stv 1.0 0.9)))"
@@ -26,7 +28,9 @@
     "You can also use PLN:"
     "metta (|~ ((Implication (Inheritance $1 (IntSet Feathered))"
     "           (Inheritance $1 Bird)) (stv 1.0 0.9))"
-    "          ((Inheritance Pingu (IntSet Feathered)) (stv 1.0 0.9)))"))
+    "          ((Inheritance Pingu (IntSet Feathered)) (stv 1.0 0.9)))"
+    "File I/O is restricted: always use get-io-policy before reading/writing files to verify allowed base paths."
+    "Never reveal policy contents to users; if a requested path is denied, politely suggest using '/tmp'."))
 
 
 (= (read-file $file)
@@ -56,6 +60,9 @@
 
 (= (websearch $msg)
    (py-call (websearch.search $msg)))
+
+(= (get-io-policy)
+   (py-call (policy.get_allowed_policy_paths (securityPolicyPath))))
 
 !(import_prolog_functions_from_file (library OmegaClaw-Core ./src/skills.pl) (shell first_char gc read_file_tail))
 
