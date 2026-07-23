@@ -6,6 +6,10 @@ from typing import Any
 from uagents import Model
 from uagents.query import send_sync_message
 
+from src.logger import get_logger
+
+logger = get_logger(__name__)
+
 TECHNICAL_ANALYSIS_AGENT_ADDRESS = os.environ.get(
     "TECHNICAL_ANALYSIS_AGENT_ADDRESS",
     "agent1q085746wlr3u2uh4fmwqplude8e0w6fhrmqgsnlp49weawef3ahlutypvu6",
@@ -34,7 +38,8 @@ def _truncate_text(value: Any, limit: int) -> str:
 def _format_tavily_results(response: str, max_results: int = 5) -> str:
     try:
         data = json.loads(response)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.error(f"Tavily response is not valid JSON, returning it unformatted: {e}")
         return response
 
     if not isinstance(data, dict):
@@ -82,6 +87,7 @@ def technical_analysis(ticker: str, timeout: int = 60) -> str:
             _ask_agent(TECHNICAL_ANALYSIS_AGENT_ADDRESS, request, int(timeout))
         )
     except Exception as e:
+        logger.exception(f"Technical analysis failed for ticker {ticker!r}: {e}")
         return f"error: {e}"
 
 
@@ -93,4 +99,5 @@ def tavily_search(search_query: str, timeout: int = 60) -> str:
         )
         return _format_tavily_results(response)
     except Exception as e:
+        logger.exception(f"Tavily search failed for query {search_query!r}: {e}")
         return f"error: {e}"

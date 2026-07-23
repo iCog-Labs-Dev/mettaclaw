@@ -118,7 +118,8 @@ def _parse_retry_after(value):
     try:
         seconds = int(str(value).strip())
         return max(1, seconds)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Malformed Retry-After value {value!r}, backing off 60s: {e}")
         return 60
 
 
@@ -429,7 +430,8 @@ def start_slack(channel_id, poll_interval=60):
 
     try:
         _poll_interval = min(60, int(poll_interval))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Invalid poll_interval {poll_interval!r}, falling back to 60: {e}")
         _poll_interval = 60
 
     with _state_lock:

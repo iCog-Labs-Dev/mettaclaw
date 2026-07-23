@@ -3,6 +3,13 @@ import json
 import re
 from datetime import datetime
 
+try:
+    from src.logger import get_logger
+except ModuleNotFoundError:  # running this file directly as a script
+    from logger import get_logger
+
+logger = get_logger(__name__)
+
 TS_RE = re.compile(r'^\("(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"')
 LLM_COMMANDS = {
     "append-file",
@@ -28,7 +35,8 @@ def extract_timestamp(line):
         return None
     try:
         return datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
-    except ValueError:
+    except ValueError as e:
+        logger.error(f"Line does not carry a parsable timestamp: {e}")
         return None
 
 
@@ -87,7 +95,8 @@ def _is_known_command(line):
 def _decode_quoted_arg(text):
     try:
         return json.loads(text)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Argument is not a quoted JSON string: {e}")
         return None
 
 
@@ -203,7 +212,8 @@ def normalize_string(x):
         if isinstance(x, bytes):
             return x.decode("utf-8", errors="ignore")
         return str(x).encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Could not normalize value, using its plain string form: {e}")
         return str(x)
 
 

@@ -176,8 +176,8 @@ def _get_stored_hash(collection, filename):
         result = collection.get(ids=[_hash_id(filename)], include=["metadatas"])
         if result["ids"]:
             return result["metadatas"][0].get("hash")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"{filename}: could not read stored hash, re-indexing: {e}")
     return None
 
 
@@ -234,8 +234,8 @@ def init_knowledge(embedding_selection):
                 old = collection.get(where={"source": filename}, include=[])
                 if old["ids"]:
                     collection.delete(ids=old["ids"])
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"{filename}: could not delete old chunks, stale chunks may remain: {e}")
 
             # Chunk and embed
             text = open(filepath, "r", encoding="utf-8").read()

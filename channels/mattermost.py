@@ -131,6 +131,7 @@ def _ws_loop():
                         send_message(f"Authentication successful for {name}.")
 
         except websocket.WebSocketTimeoutException:
+            logger.debug("Mattermost websocket receive timed out, polling again")
             continue
         except Exception as e:
             logger.exception(f"WebSocket error: {e}")
