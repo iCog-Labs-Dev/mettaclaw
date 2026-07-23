@@ -3,9 +3,6 @@ import os
 import time
 import urllib.request
 from pathlib import Path
-import logging
-
-logger = logging.getLogger(__name__)
 
 from src.logger import get_logger
 
