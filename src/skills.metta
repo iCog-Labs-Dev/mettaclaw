@@ -20,15 +20,23 @@
    "- Compact the prompt-visible context frame without completing goals: compact-frame summary"
    "- Clear transient frame junk after successful completion: clear-frame-junk summary"
    ; ATTENTION DIRECTIVES
-   "- Delegate a task to a sub-agent module: dispatch-directive target task gate criteria priority slice"
-   "  Example: dispatch-directive llm-primary Generate llm-judge \"Response answers the question\" 1.0 deliverables,history-summary"
-   "  Example: dispatch-directive python-executor Execute python-syntax \"\" 0.8 deliverables"
-   "  Example: dispatch-directive researcher Evaluate llm-judge \"Summary is factual and complete\" 0.9 deliverables,history-summary"
-   "- Execute the last generated code using python-executor (use after dispatch-directive llm-primary generates code): execute-last-code"
+   "- Delegate a task to a sub-agent module: dispatch-directive target task gate \"criteria\" priority slice"
+   "  target: module name from DIRECTIVE_MODULES"
+   "  task: Generate=produce new content | Critique=identify issues | Revise=improve existing | Execute=run code | Evaluate=assess quality"
+   "  gate: python-syntax=valid Python | exec-success=ran without error | task-consistency=output structure matches task | nonempty=non-empty output | passthrough=no validation"
+   "  criteria: use \"\" for all gates"
+   "  slice: comma-separated frame fields to pass as context (deliverables | results | history-summary)"
+   "  Example: dispatch-directive researcher Generate nonempty \"\" 1.0 deliverables,history-summary"
+   "  Example: dispatch-directive researcher Evaluate task-consistency \"\" 1.0 results,deliverables"
+   "  Example: dispatch-directive critic Critique task-consistency \"\" 1.0 results"
+   "  Example: dispatch-directive critic Evaluate task-consistency \"\" 1.0 results,deliverables"
+   "  Example: dispatch-directive general Generate python-syntax \"\" 1.0 deliverables"
+   "  Example: dispatch-directive general Revise nonempty \"\" 1.0 results,deliverables"
+   "  Example: dispatch-directive python-executor Execute exec-success \"\" 1.0 deliverables"
+   "- Execute the last generated code using python-executor (use after dispatch-directive generates code): execute-last-code"
    "- Send the last directive output to the user with an intro message: send-directive-output intro"
    "  Example: send-directive-output Here is the Python function you requested:"
    "- Show the last executed directive and its result: show-last-directive"
-   "- Get the raw output from the last executed directive for use in the next step: get-last-directive-output"
    "- Check if the last directive was admitted by its gate (True/False): last-directive-admitted"
     ;CODE EXECUTION:
     "- Execute MeTTa expression: metta sexpression"
@@ -95,10 +103,14 @@
    PIN-SUCCESS)
 
 (= (complete-goals-stm $summary)
-   (ctx-complete-goals-to-stm $summary))
+   (progn
+      (ad-clear-last-directive)
+      (ctx-complete-goals-to-stm $summary)))
 
 (= (complete-goals-ltm $summary)
-   (ctx-complete-goals-to-ltm $summary))
+   (progn
+      (ad-clear-last-directive)
+      (ctx-complete-goals-to-ltm $summary)))
 
 (= (compact-frame $summary)
    (progn
