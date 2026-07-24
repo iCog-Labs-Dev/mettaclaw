@@ -26,6 +26,13 @@ def make_id(prefix="id"):
     stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
     return f"{prefix}-{stamp}"
 
+def cfv2_make_id(prefix="id"):
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{prefix}-{stamp}"
+
+def cfv2_compact_plain(value, limit=1200):
+    return compact_plain(value, limit)
+
 def extract_timestamp(line):
     m = TS_RE.search(line)
     if not m:
@@ -137,7 +144,53 @@ def normalize_string(x):
     except Exception:
         return str(x)
 
+
+# Fence tags that indicate non-Python content — skip these blocks entirely
+_NON_PYTHON_FENCE_TAGS = {"text", "bash", "sh", "shell", "output", "plaintext", "console", "log", "json", "yaml", "xml", "html", "css", "markdown", "md"}
+
+def strip_code_fences(code: str) -> str:
+    """Extract and concatenate content from Python code fences only.
+    Fences tagged as non-Python (```text, ```bash, etc.) are skipped.
+    Discards surrounding prose. If no Python fences found, returns original stripped.
+    Multiple Python fences (e.g. function def + runner) are joined with a newline.
+    """
+    code = code.strip()
+    lines = code.splitlines()
+    blocks = []
+    inner = None
+    skip_block = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if inner is None:
+                # Opening fence — check the tag
+                tag = stripped[3:].strip().lower().split()[0] if stripped[3:].strip() else ""
+                skip_block = tag in _NON_PYTHON_FENCE_TAGS
+                if not skip_block:
+                    inner = []
+            else:
+                # Closing fence
+                if not skip_block and inner is not None:
+                    blocks.append("\n".join(inner).strip())
+                inner = None
+                skip_block = False
+        elif inner is not None and not skip_block:
+            inner.append(line)
+    if not blocks:
+        return code
+    return "\n\n".join(b for b in blocks if b)
+
 # ---- HyperClaw Context Frames V2 helper additions ----
+
+def strip_metta(s: str) -> str:
+    """Strip whitespace and any wrapping MeTTa repr quote pairs (handles nested layers)."""
+    s = str(s).strip()
+    while len(s) >= 2 and (
+        (s.startswith("'") and s.endswith("'")) or
+        (s.startswith('"') and s.endswith('"'))
+    ):
+        s = s[1:-1].strip()
+    return s
 
 def cfv2_now() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -248,6 +301,38 @@ def _field(expr: str, field_name: str) -> Optional[str]:
     while end < len(expr) and not expr[end].isspace() and expr[end] != ")":
         end += 1
     return expr[start:end]
+
+def _extract_current_frame(frame_str: str) -> str:
+    """Extract the (CurrentFrame ...) block from a ContextProjection string.
+    Falls back to the full string if not found.
+    """
+    token = "(CurrentFrame"
+    idx = frame_str.find(token)
+    if idx < 0:
+        return frame_str
+    depth = 0
+    in_str = False
+    escaped = False
+    for j in range(idx, len(frame_str)):
+        ch = frame_str[j]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return frame_str[idx : j + 1]
+    return frame_str
+
 
 def cfv2_refs_completed_after(index_repr, date_prefix) -> str:
     """Return completed FrameRefs whose completed-timestamp starts with or compares after date_prefix.

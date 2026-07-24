@@ -121,11 +121,14 @@ class AIProvider(AbstractAIProvider):
         if self._client is None:
             raise RuntimeError(f"{self.name} not configured (set {self._var_name})")
 
+        content = content.replace(":-:-:-:", " ")
+        # newer OpenAI models require max_completion_tokens instead of max_tokens
+        token_param = "max_completion_tokens" if "openai.com" in self._base_url else "max_tokens"
         try:
             response = self._client.chat.completions.create(
                 model=self._model_name,
-                messages=self._build_messages(content),
-                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": content}],
+                **{token_param: max_tokens},
                 **kwargs
             )
 
@@ -348,6 +351,42 @@ def callProvider(provider_name: str, content: str, max_tokens: int = 6000, reaso
     if not provider or not provider.is_available:
         raise RuntimeError(f"Provider '{provider_name}' not available")
     return provider.chat(content=content, max_tokens=max_tokens, reasoning=reasoning)
+
+
+# Active provider tracking — set once by the loop via setActiveProvider,
+# read by gates and any internal component that needs to call the LLM
+# without knowing which provider the loop is configured to use.
+_active_provider_name: str = "Anthropic"
+_judge_provider_name: str = ""
+
+def setActiveProvider(provider_name: str, model_name: str = "") -> None:
+    """Called by the loop when it initializes to register the active provider.
+    Only overrides the model name for OpenAI, since (LLM) in loop.metta is
+    OpenAI-specific. Other providers use their registered model names."""
+    global _active_provider_name
+    _active_provider_name = str(provider_name).strip().strip("'\"")
+    if model_name and provider_name == "OpenAI":
+        provider = _get_provider(provider_name)
+        if provider and isinstance(provider, AIProvider):
+            provider._model_name = str(model_name)
+
+def setJudgeProvider(provider_name: str) -> None:
+    """Optionally configure a dedicated provider for llm-judge gate evaluation.
+    When set, gate_llm_judge uses this provider instead of the active loop provider.
+    Call from loop.metta at init: (py-call (lib_llm_ext.setJudgeProvider "OpenAI"))
+    Leave unset to fall back to callActiveProvider."""
+    global _judge_provider_name
+    name = str(provider_name).strip().strip("'\"")
+    _judge_provider_name = name
+
+def callActiveProvider(content: str, max_tokens: int = 512) -> str:
+    """Call whichever provider the loop is currently configured to use."""
+    return callProvider(_active_provider_name, content, max_tokens)
+
+def callJudgeProvider(content: str, max_tokens: int = 512) -> str:
+    """Call the judge provider if configured, otherwise fall back to the active provider."""
+    name = _judge_provider_name or _active_provider_name
+    return callProvider(name, content, max_tokens)
 
 
 

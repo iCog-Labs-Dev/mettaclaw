@@ -25,6 +25,7 @@
           (change-state! &lastresults "")
           (change-state! &loops (maxNewInputLoops))
           (configure useFrames True)
+          (py-call (lib_llm_ext.setActiveProvider (provider) (LLM)))
           ))
 
 
@@ -35,6 +36,7 @@
           "CURRENT_CONTEXT_FRAME_S_EXPR: " (contextFrameForPrompt) (newline)
           "SKILL_SET: " (getSkills) (newline)
           "CONTEXT_FRAME_SKILLS: " (contextFramesSkills) (newline)
+          "DIRECTIVE_MODULES: " (getDirectiveModules) (newline)
           "OUTPUT_FORMAT: Up to 5 skill command lines, do not wrap quotes around args, do not use variables:" (newline)
           "toolName1 arg1" (newline)
           "toolName2 arg2" (newline)
@@ -78,7 +80,8 @@
              (initLoop)
              (initMemory)
              (initChannels)
-             (if (== (useFrames) True) (initContextFrame) _))
+             (if (== (useFrames) True) (initContextFrame) _)
+             (initAttentionDirectives))
           (change-state! &loops (- (get-state &loops) 1)))
 
       (println! (---------iteration $k))
