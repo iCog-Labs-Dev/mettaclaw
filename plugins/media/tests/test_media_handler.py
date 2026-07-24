@@ -156,6 +156,79 @@ def test_transcribe_audio_missing_key_returns_marker_never_raises():
     assert out.startswith("[AUDIO TRANSCRIPT: voice.ogg]"), out
 
 
+def test_generate_and_send_disabled():
+    orig = mh._image_generation_allowed
+    mh._image_generation_allowed = lambda: False
+    try:
+        out = mh.generate_and_send("a cat")
+        assert out.startswith("IMAGE_DISABLED"), out
+    finally:
+        mh._image_generation_allowed = orig
+
+
+def test_generate_and_send_unsafe():
+    orig_allowed = mh._image_generation_allowed
+    orig_unsafe = mh._prompt_is_unsafe
+    mh._image_generation_allowed = lambda: True
+    mh._prompt_is_unsafe = lambda prompt: True
+    try:
+        out = mh.generate_and_send("a cat")
+        assert out.startswith("Refused"), out
+    finally:
+        mh._image_generation_allowed = orig_allowed
+        mh._prompt_is_unsafe = orig_unsafe
+
+
+def test_generate_and_send_generation_failure():
+    orig_allowed = mh._image_generation_allowed
+    orig_unsafe = mh._prompt_is_unsafe
+    orig_gen = mh._generate_image_bytes
+    mh._image_generation_allowed = lambda: True
+    mh._prompt_is_unsafe = lambda prompt: False
+    mh._generate_image_bytes = lambda prompt: None
+    try:
+        out = mh.generate_and_send("a cat")
+        assert out.startswith("IMAGE_FAILED"), out
+    finally:
+        mh._image_generation_allowed = orig_allowed
+        mh._prompt_is_unsafe = orig_unsafe
+        mh._generate_image_bytes = orig_gen
+
+
+def test_generate_and_send_success():
+    orig_allowed = mh._image_generation_allowed
+    orig_unsafe = mh._prompt_is_unsafe
+    orig_gen = mh._generate_image_bytes
+    orig_channel = mh._live_tg_channel
+
+    class FakeChannel:
+        def __init__(self):
+            self.sent = None
+
+        def send_photo(self, image_bytes, caption=None):
+            self.sent = (image_bytes, caption)
+
+    fake_channel = FakeChannel()
+    mh._image_generation_allowed = lambda: True
+    mh._prompt_is_unsafe = lambda prompt: False
+    mh._generate_image_bytes = lambda prompt: b"img"
+    mh._live_tg_channel = lambda: fake_channel
+    try:
+        out = mh.generate_and_send("a cat")
+        assert out.startswith("IMAGE_SENT"), out
+        assert fake_channel.sent[0] == b"img", fake_channel.sent
+    finally:
+        mh._image_generation_allowed = orig_allowed
+        mh._prompt_is_unsafe = orig_unsafe
+        mh._generate_image_bytes = orig_gen
+        mh._live_tg_channel = orig_channel
+
+
+def test_generate_and_send_empty_prompt():
+    out = mh.generate_and_send("   ")
+    assert out == "IMAGE_FAILED: empty prompt", out
+
+
 if __name__ == "__main__":
     test_no_image_returns_marker()
     test_describe_memoizes_per_turn()
@@ -166,4 +239,9 @@ if __name__ == "__main__":
     test_extract_pdf_text_failure_returns_marker_never_raises()
     test_transcribe_audio_success_with_stubbed_openai_client()
     test_transcribe_audio_missing_key_returns_marker_never_raises()
+    test_generate_and_send_disabled()
+    test_generate_and_send_unsafe()
+    test_generate_and_send_generation_failure()
+    test_generate_and_send_success()
+    test_generate_and_send_empty_prompt()
     print("all media_handler tests passed")
