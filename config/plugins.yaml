@@ -59,3 +59,7 @@
 - name: openrouter_vision
   loader: python
   location: "{REPO}/plugins/media"
+
+- name: telegram_media
+  loader: python
+  location: "{REPO}/plugins/media"
