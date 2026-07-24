@@ -55,3 +55,7 @@
 - name: mockprovider
   loader: python
   location: "{REPO}/providers"
+
+- name: openrouter_vision
+  loader: python
+  location: "{REPO}/plugins/media"
