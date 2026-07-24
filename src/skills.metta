@@ -14,6 +14,7 @@
     "- Send message to user: send string"
     "- Search the web: websearch string"
     "- See/read an image the user attached. Call when a message shows [image] and you need its contents; optionally pass what to look for (example: describe-image what error is shown): describe-image query"
+    "- Generate an image and send it to the user. Use when the user asks you to create, draw, generate, paint, or show a picture or image. Pass a vivid, detailed English description; the image is generated and sent for you (example: generate-image a red panda astronaut floating in space, studio lighting): generate-image description"
     "- Search the web using the Tavily Search Agent: tavily-search string"
     "- Get technical analysis for a stock ticker using the Technical Analysis Agent: technical-analysis ticker"
     ;CODE EXECUTION:
@@ -61,6 +62,9 @@
 
 (= (describe-image $query)
    (py-call (media_handler.describe_image $query)))
+
+(= (generate-image $prompt)
+   (py-call (media_handler.generate_and_send $prompt)))
 
 (= (websearch $msg)
    (py-call (websearch.search $msg)))
