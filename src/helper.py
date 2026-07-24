@@ -182,6 +182,16 @@ def strip_code_fences(code: str) -> str:
 
 # ---- HyperClaw Context Frames V2 helper additions ----
 
+def strip_metta(s: str) -> str:
+    """Strip whitespace and any wrapping MeTTa repr quote pairs (handles nested layers)."""
+    s = str(s).strip()
+    while len(s) >= 2 and (
+        (s.startswith("'") and s.endswith("'")) or
+        (s.startswith('"') and s.endswith('"'))
+    ):
+        s = s[1:-1].strip()
+    return s
+
 def cfv2_now() -> str:
     return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -291,6 +301,38 @@ def _field(expr: str, field_name: str) -> Optional[str]:
     while end < len(expr) and not expr[end].isspace() and expr[end] != ")":
         end += 1
     return expr[start:end]
+
+def _extract_current_frame(frame_str: str) -> str:
+    """Extract the (CurrentFrame ...) block from a ContextProjection string.
+    Falls back to the full string if not found.
+    """
+    token = "(CurrentFrame"
+    idx = frame_str.find(token)
+    if idx < 0:
+        return frame_str
+    depth = 0
+    in_str = False
+    escaped = False
+    for j in range(idx, len(frame_str)):
+        ch = frame_str[j]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return frame_str[idx : j + 1]
+    return frame_str
+
 
 def cfv2_refs_completed_after(index_repr, date_prefix) -> str:
     """Return completed FrameRefs whose completed-timestamp starts with or compares after date_prefix.
