@@ -1,4 +1,6 @@
+import io
 import os, sys
+import types
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import media_handler as mh
@@ -69,9 +71,99 @@ def test_describe_never_raises_on_malformed_media():
         mh.set_pending_media(None)
 
 
+def test_sanitize_image_roundtrips_to_jpeg():
+    from PIL import Image
+
+    src = io.BytesIO()
+    Image.new("RGB", (1, 1)).save(src, format="PNG")
+    out = mh.sanitize_image(src.getvalue())
+    assert out and isinstance(out, bytes)
+    reopened = Image.open(io.BytesIO(out))
+    assert reopened.format == "JPEG"
+
+
+def test_extract_pdf_text_success_with_stubbed_pypdf():
+    class FakePage:
+        def extract_text(self):
+            return "known page text"
+
+    class FakePdfReader:
+        def __init__(self, buf):
+            self.pages = [FakePage()]
+
+    fake_pypdf = types.ModuleType("pypdf")
+    fake_pypdf.PdfReader = FakePdfReader
+    sys.modules["pypdf"] = fake_pypdf
+    try:
+        out = mh.extract_pdf_text(b"irrelevant bytes", "doc.pdf")
+        assert "known page text" in out, out
+        assert "[PDF: doc.pdf]" in out, out
+    finally:
+        del sys.modules["pypdf"]
+
+
+def test_extract_pdf_text_failure_returns_marker_never_raises():
+    # Deterministically exercise the failure path regardless of whether pypdf is
+    # installed: stub PdfReader to raise. Must return a marker, never raise.
+    class BoomReader:
+        def __init__(self, buf):
+            raise RuntimeError("corrupt pdf")
+
+    fake_pypdf = types.ModuleType("pypdf")
+    fake_pypdf.PdfReader = BoomReader
+    saved = sys.modules.get("pypdf")
+    sys.modules["pypdf"] = fake_pypdf
+    try:
+        out = mh.extract_pdf_text(b"irrelevant bytes", "doc.pdf")
+        assert out.startswith("[PDF: doc.pdf]"), out
+        assert "Could not extract text" in out, out
+    finally:
+        if saved is not None:
+            sys.modules["pypdf"] = saved
+        else:
+            del sys.modules["pypdf"]
+
+
+def test_transcribe_audio_success_with_stubbed_openai_client():
+    import openai
+
+    class FakeTranscriptions:
+        def create(self, **kwargs):
+            assert kwargs["model"] == "openai/whisper-large-v3"
+            return types.SimpleNamespace(text="hello world")
+
+    class FakeAudio:
+        transcriptions = FakeTranscriptions()
+
+    class FakeClient:
+        audio = FakeAudio()
+
+    orig_openai_cls = openai.OpenAI
+    os.environ["OPENROUTER_API_KEY"] = "test-key"
+    openai.OpenAI = lambda *a, **kw: FakeClient()
+    try:
+        out = mh.transcribe_audio(b"fake audio bytes", "voice.ogg")
+        assert "hello world" in out, out
+        assert "[AUDIO TRANSCRIPT: voice.ogg]" in out, out
+    finally:
+        openai.OpenAI = orig_openai_cls
+        os.environ.pop("OPENROUTER_API_KEY", None)
+
+
+def test_transcribe_audio_missing_key_returns_marker_never_raises():
+    os.environ.pop("OPENROUTER_API_KEY", None)
+    out = mh.transcribe_audio(b"fake audio bytes", "voice.ogg")
+    assert out.startswith("[AUDIO TRANSCRIPT: voice.ogg]"), out
+
+
 if __name__ == "__main__":
     test_no_image_returns_marker()
     test_describe_memoizes_per_turn()
     test_describe_never_raises()
     test_describe_never_raises_on_malformed_media()
+    test_sanitize_image_roundtrips_to_jpeg()
+    test_extract_pdf_text_success_with_stubbed_pypdf()
+    test_extract_pdf_text_failure_returns_marker_never_raises()
+    test_transcribe_audio_success_with_stubbed_openai_client()
+    test_transcribe_audio_missing_key_returns_marker_never_raises()
     print("all media_handler tests passed")

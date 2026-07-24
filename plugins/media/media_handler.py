@@ -104,3 +104,74 @@ def image_to_data_uri(file_bytes, mime_type):
     """Helper for image ingestion (used by the channel plugin later)."""
     encoded = base64.b64encode(file_bytes).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
+
+
+def sanitize_image(file_bytes, max_dim=2048, quality=85):
+    """Re-encode an image via Pillow: strips EXIF/metadata and destroys most
+    LSB-embedded steganographic payloads. Raises on undecodable input so the
+    caller's existing error path rejects the file."""
+    from PIL import Image
+    from io import BytesIO
+    img = Image.open(BytesIO(file_bytes))
+    img = img.convert("RGB")
+    if max(img.size) > max_dim:
+        img.thumbnail((max_dim, max_dim))
+    out = BytesIO()
+    img.save(out, format="JPEG", quality=quality)
+    return out.getvalue()
+
+
+def extract_pdf_text(file_bytes, filename, max_chars=20000):
+    try:
+        from pypdf import PdfReader
+        from io import BytesIO
+
+        reader = PdfReader(BytesIO(file_bytes))
+        pages = []
+        for page in reader.pages:
+            pages.append(page.extract_text() or "")
+        text = "\n".join(pages)
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n[truncated]"
+        logger.info(f"Extracted text from {filename}: {len(text)}")
+        return f"[PDF: {filename}]\n{text}"
+    except Exception as e:
+        logger.error(f"PDF extraction failed for {filename}: {e}")
+        return f"[PDF: {filename}]\n[Could not extract text: {e}]"
+
+
+def transcribe_audio(file_bytes, filename, model="openai/whisper-large-v3", max_bytes=25 * 1024 * 1024, language=None, temperature=None):
+    """Transcribe an audio/voice file to text via OpenRouter Whisper Large V3.
+
+    Returns a marker-prefixed string for the PDF-style context slot, or an
+    error note (never raises) so the agent still gets a usable turn.
+    """
+    try:
+        if len(file_bytes) > max_bytes:
+            return f"[AUDIO TRANSCRIPT: {filename}]\n[Audio too large to transcribe]"
+
+        import os, io, openai
+
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            return f"[AUDIO TRANSCRIPT: {filename}]\n[Could not transcribe: OPENROUTER_API_KEY is not set]"
+
+        client = openai.OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1",)
+        audio_file = io.BytesIO(file_bytes)
+        audio_file.name = filename
+        kwargs = { "model": model, "file": audio_file,}
+        if language:
+            kwargs["language"] = language
+
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+
+        resp = client.audio.transcriptions.create(**kwargs)
+        text = (getattr(resp, "text", "") or "").strip()
+        logger.info(f"Transcribed {filename}: {len(text)} chars")
+
+        return f"[AUDIO TRANSCRIPT: {filename}]\n{text}"
+
+    except Exception as e:
+        logger.error(f"Audio transcription failed for {filename}: {e}")
+        return f"[AUDIO TRANSCRIPT: {filename}]\n[Could not transcribe: {e}]"
