@@ -1,18 +1,26 @@
-import os, sys
+import asyncio
+import os
+import sys
+import threading
+from types import SimpleNamespace
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _MEDIA_DIR = os.path.dirname(_HERE)
 _REPO_ROOT = os.path.dirname(os.path.dirname(_MEDIA_DIR))
 
-# telegram_media.py pulls in auth (channels/), src.logger and pluginapi (src/),
-# same as core's channels/telegram.py does when loaded as a real plugin.
+# telegram_media.py pulls in pluginapi (src/) the same way core's
+# channels/telegram.py does when loaded as a real plugin. It no longer needs
+# channels/auth.py — the fork's channel uses its own admin_ids/allowed_chats
+# authorization, not core's auth handshake.
 sys.path.insert(0, _MEDIA_DIR)
-sys.path.insert(0, os.path.join(_REPO_ROOT, "channels"))
 sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 sys.path.insert(0, _REPO_ROOT)
 
+os.environ.setdefault("OPENAI_API_KEY", "test-key")
+
 import telegram_media as tm
 import media_handler as mh
+from aiogram.types import BufferedInputFile
 
 
 def _stub(monkeys):
@@ -28,125 +36,306 @@ def _stub(monkeys):
     return restore
 
 
-def test_ingest_media_photo_returns_image_marker_and_sets_pending():
-    calls = {"set_pending": None}
+def _fake_message(chat_id=1, chat_type="private", user_id=42, is_bot=False,
+                   text=None, caption=None, photo=None, document=None,
+                   voice=None, audio=None, video=None, reply_to_message=None,
+                   message_id=1):
+    answers = []
+
+    async def answer(text, **kwargs):
+        answers.append((text, kwargs))
+
+    return SimpleNamespace(
+        chat=SimpleNamespace(id=chat_id, type=chat_type),
+        from_user=SimpleNamespace(id=user_id, username="tester", full_name="Tester",
+                                   is_bot=is_bot),
+        text=text,
+        caption=caption,
+        photo=photo,
+        document=document,
+        voice=voice,
+        audio=audio,
+        video=video,
+        reply_to_message=reply_to_message,
+        message_id=message_id,
+        answer=answer,
+        _answers=answers,
+    )
+
+
+def _new_channel(admin_ids=(42,)):
+    """A fresh _TelegramChannel loaded from the real plugin-local config, with
+    admin_ids overridden so a private-chat admin test doesn't depend on the
+    (empty by default) telegram_profile.yaml admin list."""
+    ch = tm._TelegramChannel()
+    ch.admin_ids = list(admin_ids)
+    return ch
+
+
+class FakeBot:
+    """Stub aiogram Bot: download() fills the destination buffer; send_photo()
+    records the call instead of hitting the network."""
+
+    def __init__(self, download_bytes=b"raw-bytes"):
+        self.download_bytes = download_bytes
+        self.sent_photo = None
+
+    async def download(self, file_obj, destination):
+        destination.write(self.download_bytes)
+
+    async def send_photo(self, chat_id, photo, caption=None, reply_to_message_id=None):
+        self.sent_photo = {"chat_id": chat_id, "photo": photo, "caption": caption,
+                            "reply_to_message_id": reply_to_message_id}
+        return SimpleNamespace()
+
+
+def test_photo_handler_buffers_image_and_queues_marker():
+    ch = _new_channel()
+    ch.bot = FakeBot()
     restore = _stub([
-        (tm, "_download_file", lambda file_id: b"raw-bytes"),
-        (mh, "sanitize_image", lambda raw: b"jpeg-bytes"),
+        (mh, "sanitize_image", lambda raw: b"sanitized-jpeg"),
         (mh, "image_to_data_uri", lambda img, mime: "data:image/jpeg;base64,AAAA"),
-        (mh, "set_pending_media", lambda media: calls.__setitem__("set_pending", media)),
     ])
+    calls = {}
+
+    def fake_set_pending_media(media):
+        calls["media"] = media
+    mh.set_pending_media = fake_set_pending_media
+
     try:
-        message = {
-            "photo": [{"file_id": "small"}, {"file_id": "large"}],
-            "caption": "look at this",
-        }
-        out = tm._ingest_media(message)
-        assert out.startswith("[image]"), out
-        assert "look at this" in out, out
-        assert calls["set_pending"] is not None
-        assert len(calls["set_pending"]) == 1
-        assert calls["set_pending"][0]["type"] == "image_url"
+        message = _fake_message(photo=[SimpleNamespace(), SimpleNamespace()])
+        asyncio.run(ch._on_photo(message))
+        assert len(ch._message_queue) == 1
+        result = ch.get_last_message()
+        assert result is not None and "[image]" in result, result
+        assert calls["media"] == [{"type": "image_url",
+                                    "image_url": {"url": "data:image/jpeg;base64,AAAA"}}]
     finally:
         restore()
 
 
-def test_ingest_media_pdf_returns_filename_and_text():
+def test_pdf_handler_extracts_text():
+    ch = _new_channel()
+    ch.bot = FakeBot()
+
+    async def not_blocked(text):
+        return False
     restore = _stub([
-        (tm, "_download_file", lambda file_id: b"pdf-bytes"),
         (mh, "extract_pdf_text", lambda raw, filename: "extracted text here"),
+        (tm, "is_category_blocked", not_blocked),
     ])
     try:
-        message = {
-            "document": {"file_id": "f1", "mime_type": "application/pdf", "file_name": "report.pdf"},
-            "caption": "",
-        }
-        out = tm._ingest_media(message)
-        assert "report.pdf" in out, out
-        assert "extracted text here" in out, out
+        message = _fake_message(document=SimpleNamespace(mime_type="application/pdf",
+                                                           file_name="report.pdf"))
+        asyncio.run(ch._on_document(message))
+        assert len(ch._message_queue) == 1
+        chat_id, display_text, reply_id, payload = ch._message_queue[0]
+        assert "report.pdf" in display_text, display_text
+        assert payload == {"media": None, "context": "extracted text here"}
     finally:
         restore()
 
 
-def test_ingest_media_non_pdf_document_returns_none():
-    message = {"document": {"file_id": "f1", "mime_type": "text/plain", "file_name": "notes.txt"}}
-    assert tm._ingest_media(message) is None
+def test_pdf_handler_rejects_non_pdf_document():
+    ch = _new_channel()
+    ch.bot = FakeBot()
+    message = _fake_message(document=SimpleNamespace(mime_type="text/plain",
+                                                       file_name="notes.txt"))
+    asyncio.run(ch._on_document(message))
+    assert len(ch._message_queue) == 0
+    assert message._answers, "expected a rejection notice"
+    assert "PDF" in message._answers[0][0]
 
 
-def test_ingest_media_voice_returns_transcript():
+def test_voice_handler_transcribes_audio():
+    ch = _new_channel()
+    ch.bot = FakeBot()
+
+    async def not_blocked(text):
+        return False
     restore = _stub([
-        (tm, "_download_file", lambda file_id: b"audio-bytes"),
         (mh, "transcribe_audio", lambda raw, filename: "hello from the transcript"),
+        (tm, "is_category_blocked", not_blocked),
     ])
     try:
-        message = {"voice": {"file_id": "v1"}}
-        out = tm._ingest_media(message)
-        assert "[voice message]" in out, out
-        assert "hello from the transcript" in out, out
+        message = _fake_message(voice=SimpleNamespace(file_id="v1", file_name=None))
+        asyncio.run(ch._on_audio(message))
+        assert len(ch._message_queue) == 1
+        chat_id, display_text, reply_id, payload = ch._message_queue[0]
+        assert "sent audio" in display_text, display_text
+        assert payload == {"media": None, "context": "hello from the transcript"}
     finally:
         restore()
 
 
-def test_ingest_media_photo_download_failure_returns_marker():
-    def boom(file_id):
-        raise RuntimeError("network down")
+def test_muted_user_is_gated_from_message_queue():
+    ch = _new_channel()
 
-    restore = _stub([(tm, "_download_file", boom)])
+    async def not_blocked(text):
+        return False
+    restore = _stub([
+        (tm, "get_spam_protection_config", lambda: {
+            "time_window": 10, "message_limit": 1,
+            "cooldown_duration": 120, "admin_alert_threshold": 3,
+        }),
+        (tm, "is_category_blocked", not_blocked),
+    ])
     try:
-        message = {"photo": [{"file_id": "only"}]}
-        out = tm._ingest_media(message)
-        assert out == "[image could not be processed]", out
+        user = SimpleNamespace(id=99, username="spammer", full_name="Spammer", is_bot=False)
+        # First call establishes history; second exceeds message_limit=1 and mutes.
+        assert asyncio.run(ch.is_user_muted(user)) is False
+        assert asyncio.run(ch.is_user_muted(user)) is True
+
+        message = _fake_message(user_id=99, text="hello again")
+        asyncio.run(ch._on_message(message))
+        assert len(ch._message_queue) == 0, "muted user's message must not be queued"
     finally:
         restore()
 
 
-def test_poll_loop_does_not_ingest_for_unauthenticated_sender():
-    """The auth gate must run before any media download: an ignored sender's
-    photo must never reach _ingest_media (no file download for unauth users)."""
-    import auth
+def test_inbound_ethics_block_prevents_queueing():
+    ch = _new_channel()
 
-    calls = {"ingest": 0}
-    photo_update = {
-        "update_id": 1,
-        "message": {"chat": {"id": "5"}, "from": {"id": "9"},
-                    "photo": [{"file_id": "f"}]},
-    }
-
-    saved = (tm._ingest_media, tm._api_call, auth.is_auth_enabled,
-             auth.authenticate_channel_user, tm._running,
-             tm._authenticated_user_id, tm._chat_id)
-
-    def fake_api(method, params=None, **kw):
-        if method == "getUpdates":
-            tm._running = False          # stop the loop after one batch
-            return [photo_update]
-        return {}
-
-    def fake_ingest(message):
-        calls["ingest"] += 1
-        return "[image]"
-
-    tm._running = True
-    tm._authenticated_user_id = None
-    tm._chat_id = ""
-    tm._api_call = fake_api
-    tm._ingest_media = fake_ingest
-    auth.is_auth_enabled = lambda: True
-    auth.authenticate_channel_user = lambda *a, **k: "ignore"
+    async def blocked(text):
+        return True
+    restore = _stub([
+        (tm, "is_category_blocked", blocked),
+        (tm, "alert_ethics_violation", lambda tool_name, text=None: None),
+    ])
     try:
-        tm._poll_loop()
-        assert calls["ingest"] == 0, "unauthenticated photo must not be ingested"
+        message = _fake_message(text="something unsafe")
+        asyncio.run(ch._on_message(message))
+        assert len(ch._message_queue) == 0, "blocked message must not be queued"
     finally:
-        (tm._ingest_media, tm._api_call, auth.is_auth_enabled,
-         auth.authenticate_channel_user, tm._running,
-         tm._authenticated_user_id, tm._chat_id) = saved
+        restore()
+
+
+def test_send_photo_dispatches_expected_aiogram_call():
+    ch = _new_channel()
+    bot = FakeBot()
+    ch.bot = bot
+    ch.connected = True
+    ch.chat_id = "555"
+    ch._reply_to_id = None
+
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=loop.run_forever, daemon=True)
+    t.start()
+    ch.loop = loop
+    try:
+        ch.send_photo(b"image-bytes", caption="a cat")
+        assert bot.sent_photo is not None
+        assert bot.sent_photo["chat_id"] == "555"
+        assert bot.sent_photo["caption"] == "a cat"
+        assert isinstance(bot.sent_photo["photo"], BufferedInputFile)
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        t.join(timeout=2)
+
+
+def test_admin_command_refuses_non_admin_allows_admin():
+    """_purge_cmd (admin-only, private-DM-only) must refuse a non-admin and
+    take no destructive effect, and must proceed for an admin."""
+    ch = _new_channel(admin_ids=(42,))
+    calls = {"deleted": False}
+
+    class FakeChromaClient:
+        def __init__(self, path=None):
+            pass
+
+        def delete_collection(self, name):
+            calls["deleted"] = True
+
+        def get_or_create_collection(self, name=None):
+            return SimpleNamespace()
+
+    fake_chromadb = SimpleNamespace(PersistentClient=FakeChromaClient)
+    sys.modules["chromadb"] = fake_chromadb
+    try:
+        non_admin = _fake_message(chat_type="private", user_id=999)
+        assert ch._is_admin_dm(non_admin) is False
+        asyncio.run(ch._purge_cmd(non_admin))
+        assert calls["deleted"] is False, "non-admin must not trigger the purge"
+        assert non_admin._answers, "expected a refusal reply"
+        assert "Admin commands only work in direct messages" in non_admin._answers[0][0]
+
+        admin = _fake_message(chat_type="private", user_id=42)
+        assert ch._is_admin_dm(admin) is True
+        asyncio.run(ch._purge_cmd(admin))
+        assert calls["deleted"] is True, "admin command must proceed"
+    finally:
+        del sys.modules["chromadb"]
+
+
+def test_group_message_requires_tag_or_reply():
+    """Untagged group chatter must be dropped; a tagged message or a reply to
+    the bot must be queued."""
+    ch = _new_channel()
+    ch.bot_username = "mybot"
+    ch.bot_id = 555
+
+    async def not_blocked(text):
+        return False
+    restore = _stub([(tm, "is_category_blocked", not_blocked)])
+    try:
+        untagged = _fake_message(chat_type="group", user_id=1001, text="just chatting")
+        asyncio.run(ch._on_message(untagged))
+        assert len(ch._message_queue) == 0, "untagged group chatter must not be queued"
+
+        tagged = _fake_message(chat_type="group", user_id=1002, text="@mybot hello there")
+        asyncio.run(ch._on_message(tagged))
+        assert len(ch._message_queue) == 1, "a message tagging the bot must be queued"
+
+        reply_to_bot = _fake_message(
+            chat_type="group", user_id=1003, text="answering you",
+            reply_to_message=SimpleNamespace(from_user=SimpleNamespace(id=555)),
+        )
+        asyncio.run(ch._on_message(reply_to_bot))
+        assert len(ch._message_queue) == 2, "a reply to the bot must be queued"
+    finally:
+        restore()
+
+
+def test_dm_authorization_gates_non_admin_allows_admin():
+    """_is_chat_authorized DM branch: with dm_enabled False (shipped default),
+    a non-admin DM is not authorized; an admin DM is."""
+    ch = _new_channel(admin_ids=(42,))
+    ch.dm_enabled = False
+
+    non_admin_dm = _fake_message(chat_type="private", user_id=7)
+    assert ch._is_chat_authorized(non_admin_dm) is False
+
+    admin_dm = _fake_message(chat_type="private", user_id=42)
+    assert ch._is_chat_authorized(admin_dm) is True
+
+    # End-to-end: an unauthorized DM must not reach the message queue.
+    async def not_blocked(text):
+        return False
+    restore = _stub([(tm, "is_category_blocked", not_blocked)])
+    try:
+        blocked_msg = _fake_message(chat_type="private", user_id=7, text="hi")
+        asyncio.run(ch._on_message(blocked_msg))
+        assert len(ch._message_queue) == 0, "unauthorized DM must not be queued"
+    finally:
+        restore()
+
+
+def test_plugin_registration_exposes_comm_channel():
+    assert issubclass(tm.TelegramChannel, __import__("pluginapi").CommChannel)
+    channel = tm.TelegramChannel()
+    assert hasattr(channel, "config") and hasattr(channel, "receive") and hasattr(channel, "send")
 
 
 if __name__ == "__main__":
-    test_ingest_media_photo_returns_image_marker_and_sets_pending()
-    test_ingest_media_pdf_returns_filename_and_text()
-    test_ingest_media_non_pdf_document_returns_none()
-    test_ingest_media_voice_returns_transcript()
-    test_ingest_media_photo_download_failure_returns_marker()
-    test_poll_loop_does_not_ingest_for_unauthenticated_sender()
+    test_photo_handler_buffers_image_and_queues_marker()
+    test_pdf_handler_extracts_text()
+    test_pdf_handler_rejects_non_pdf_document()
+    test_voice_handler_transcribes_audio()
+    test_muted_user_is_gated_from_message_queue()
+    test_inbound_ethics_block_prevents_queueing()
+    test_send_photo_dispatches_expected_aiogram_call()
+    test_admin_command_refuses_non_admin_allows_admin()
+    test_group_message_requires_tag_or_reply()
+    test_dm_authorization_gates_non_admin_allows_admin()
+    test_plugin_registration_exposes_comm_channel()
     print("all telegram_media tests passed")
